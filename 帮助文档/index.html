@@ -1,0 +1,610 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+	<title>Luique - Personal Portfolio HTML5 Template - shared on themelock.com</title>
+	<meta charset="utf-8" />
+	<link rel="stylesheet" href="assets/style.css">
+	<link rel="stylesheet" href="assets/table.css">
+</head>
+<body>
+	<header class="dt-header dt-header_blue">
+		<span class="dt-logo">Luique - Personal Portfolio HTML5 Template</span>
+	</header>
+	<div class="dt-container dt-container_flex">
+		<aside class="dt-navbar">
+			<nav class="dt-navbar__nav">
+				<div class="dt-navbar__section">
+					<ul class="dt-navbar__list">
+						<li><a href="#files_structure" class="dt-navbar__link">File structure</a></li>
+						<li>
+							<a href="#settings" class="dt-navbar__link">Settings</a>
+							<ul class="dt-navbar__list">
+								<li><a href="#include_fonts" class="dt-navbar__link dt-navbar__link_nested">Include Fonts</a></li>
+								<li><a href="#include_icons" class="dt-navbar__link dt-navbar__link_nested">Edit Icons</a></li>
+							</ul>
+						</li>
+						<li><a href="#conts" class="dt-navbar__link">Contact Form PHP</a></li>
+						<li>
+							<a href="#html_structure" class="dt-navbar__link">HTML structure</a>
+							<ul class="dt-navbar__list">
+								<li><a href="#html_structure_header" class="dt-navbar__link dt-navbar__link_nested">"Header" Section</a></li>
+								<li><a href="#html_structure_footer" class="dt-navbar__link dt-navbar__link_nested">"Footer" Section</a></li>
+								<li><a href="#html_structure_home" class="dt-navbar__link dt-navbar__link_nested">"Home" Pages</a></li>
+								<li><a href="#html_structure_works" class="dt-navbar__link dt-navbar__link_nested">"Works" Pages</a></li>
+							</ul>
+						</li>
+						<li><a href="#icons" class="dt-navbar__link">Icons</a></li>
+						<li><a href="#credits" class="dt-navbar__link">Credits</a></li>
+					</ul>
+				</div>
+			</nav>
+		</aside>
+		<div class="dt-content dt-content_scroll-bar-yes">
+			<div class="dt-section">
+				<h2 class="dt-title">Luique - Personal Portfolio HTML5 Template</h2>
+				<p>by: bslthemes</p>
+				 
+			</div>
+			<article id="files_structure" class="dt-section">
+				<h2 class="dt-title">File structure</h2>
+				<p>After unpacking archive, you'll see this structure:</p>
+				<div class="dt-info-block">
+					<pre class="code language-html">
+						<code>
+html/
+│
+├──doc/
+├──template/
+│──│──assets/
+│──│──│──css/
+│──│──│──│──vendors/
+│──│──│──│──│──animate.css
+│──│──│──│──│──bootstrap.css
+│──│──│──│──│──magnific-popup.css
+│──│──│──│──│──splitting.css
+│──│──│──│──│──swiper.css
+│──│──│──│──dark.css
+│──│──│──│──style.css
+│──│──│──fonts/
+│──│──│──│──font-awesome/
+│──│──│──images/
+│──│──│──js/
+│──│──│──│──bootstrap.js
+│──│──│──│──common.js
+│──│──│──│──imagesloaded.pkgd.js
+│──│──│──│──isotope.pkgd.js
+│──│──│──│──jarallax.min.js
+│──│──│──│──jquery.min.js
+│──│──│──│──jquery.cookie.js
+│──│──│──│──jquery.scrolla.js
+│──│──│──│──jquery.validate.min.js
+│──│──│──│──magnific-popup.js
+│──│──│──│──skrollr.js
+│──│──│──│──splitting.js
+│──│──│──│──swiper.js
+│──│──│──│──typed.js
+│──│──mailer/
+│──│──│──feedback.php
+│──│──│──form_setting.php
+│──│──index.html
+│──│──works.html
+│──│──works-list.html
+│──│──blog.html
+│──│──blog-single.html
+│──│──work-single.html
+						</code>
+					</pre>
+				</div>
+				<ul class="dt-list dt-list_nested dt-info-block">
+					<li>
+						<span class="dt-label dt-label_bold">css/</span> - all CSS for pages
+						<ul class="dt-list dt-list_nested">
+							<li><span class="dt-label dt-label_bold">/vendors/</span> - plugins styles for template</li>
+							<li><span class="dt-label dt-label_bold">style.css</span> - main CSS for template</li>
+						</ul>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">js/</span> - all JS library for template
+						<ul class="dt-list dt-list_nested">
+							<li><span class="dt-label dt-label_bold">common.js</span> - main JS for template</li>
+						</ul>
+					</li>
+				</ul>
+			</article>
+			<article id="settings" class="dt-section">
+				<h2 class="dt-title">Settings</h2>
+			</article>
+			<article id="include_fonts" class="dt-section">
+				<h2 class="dt-title">Include of fonts</h2>
+				<p>To use fonts, you must add one tag 'link' from section below to head section.</p>
+				<pre class="code language-html">
+					<code>
+&lt;link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Rubik%3A300%2C300i%2C400%2C400i%2C500%2C500i%2C600%2C600i%2C700%2C700i%2C800%2C800i%2C900%2C900i%7CSorts+Mill+Goudy&#038;display=swap" type="text/css" media="all" /&gt;
+&lt;link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto%3A100%2C100italic%2C200%2C200italic%2C300%2C300italic%2C400%2C400italic%2C500%2C500italic%2C600%2C600italic%2C700%2C700italic%2C800%2C800italic%2C900%2C900italic%7CRoboto+Slab%3A100%2C100italic%2C200%2C200italic%2C300%2C300italic%2C400%2C400italic%2C500%2C500italic%2C600%2C600italic%2C700%2C700italic%2C800%2C800italic%2C900%2C900italic&#038;display=auto" type="text/css" media="all" /&gt;
+					</code>
+				</pre>
+				<p>
+					Next step is to replace "font-family: '...';" to your fonts names.
+				</p>
+			</article>
+			<article id="include_icons" class="dt-section">
+				<h2 class="dt-title">Edit Icons</h2>
+				<p>In this template are defined some of classes for icons, see all icons here - <a href="https://fontawesome.com/icons?d=gallery&s=brands,solid&m=free">https://fontawesome.com/icons?d=gallery&s=brands,solid&m=free</a>, use search and select icons.</p>
+				<p>Copy icon class (for example "fas fa-code") and add to tag in html file like this:</p>
+				<pre class="code language-html">
+					<code>
+&lt;i class="fas fa-pencil-ruler"&gt;&lt;/i&gt;
+					</code>
+				</pre>
+			</article>
+			<article id="conts" class="dt-section">
+				<h2 class="dt-title">Contact Form PHP</h2>
+				<p>To modify the form is submitted, you can use the following settings, folders "/mailer/form_setting.php" and "/mailer/feedback.php"</p>
+			</article>
+			<article id="html_structure" class="dt-section">
+				<h2 class="dt-title">HTML structure</h2>
+				<pre class="code language-html">
+					<code>
+&lt;!doctype html&gt;
+&lt;html lang="en-US"&gt;
+&lt;head&gt;
+
+  &lt;title&gt;Luique - Personal Portfolio HTML Template&lt;/title&gt;
+  &lt;meta http-equiv="Content-Type" content="text/html; charset=utf-8"&gt;
+  &lt;meta http-equiv="X-UA-Compatible" content="IE=edge"&gt;
+  &lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;
+  &lt;meta name="HandheldFriendly" content="true"&gt;
+  &lt;meta name="author" content="bslthemes" /&gt;
+
+  &lt;!-- Fonts --&gt;
+  &lt;link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Jost%3A0%2C100%3B0%2C200%3B0%2C300%3B0%2C400%3B0%2C500%3B0%2C600%3B0%2C700%3B0%2C800%3B0%2C900%3B1%2C100%3B1%2C200%3B1%2C300%3B1%2C400%3B1%2C500%3B1%2C600%3B1%2C700%3B1%2C800%3B1%2C900%7CCaveat%3A400%3B500%3B600%3B700&#038;display=swap" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto%3A100%2C100italic%2C200%2C200italic%2C300%2C300italic%2C400%2C400italic%2C500%2C500italic%2C600%2C600italic%2C700%2C700italic%2C800%2C800italic%2C900%2C900italic%7CRoboto+Slab%3A100%2C100italic%2C200%2C200italic%2C300%2C300italic%2C400%2C400italic%2C500%2C500italic%2C600%2C600italic%2C700%2C700italic%2C800%2C800italic%2C900%2C900italic&#038;display=auto" type="text/css" media="all" /&gt;
+
+  &lt;!-- CSS STYLES --&gt;
+  &lt;link rel="stylesheet" href="assets/css/vendors/bootstrap.css" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="assets/fonts/font-awesome/css/font-awesome.css" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="assets/css/vendors/magnific-popup.css" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="assets/css/vendors/splitting.css" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="assets/css/vendors/swiper.css" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="assets/css/vendors/animate.css" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="assets/css/style.css" type="text/css" media="all" /&gt;
+  &lt;link rel="stylesheet" href="assets/css/dark.css" type="text/css" media="all" /&gt;
+
+  &lt;!-- Favicon --&gt;
+	&lt;link rel="shortcut icon" href="favicon.ico" type="image/x-icon"&gt;
+	&lt;link rel="icon" href="favicon.ico" type="image/x-icon"&gt;
+
+&lt;/head&gt;
+
+&lt;body class="home light-skin"&gt;
+	&lt;div class="container-page"&gt;
+
+		&lt;!-- Preloader --&gt;
+		&lt;div class="preloader"&gt;
+			...
+		&lt;/div&gt;
+
+		&lt;!-- Header --&gt;
+		&lt;header class="header"&gt;
+
+      ...
+
+    &lt;/header&gt;
+
+		&lt;!-- Wrapper --&gt;
+		&lt;div class="wrapper"&gt;
+
+      &lt;!-- Section - Hero Started --&gt;
+			&lt;section class="lui-section lui-section-hero lui-gradient-top" id="started-section"&gt;
+
+        ...
+
+			&lt;/section&gt;
+
+      &lt;!-- Section - Services --&gt;
+			&lt;section class="lui-section lui-gradient-bottom" id="services-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+      &lt;!-- Section - Skills --&gt;
+			&lt;section class="lui-section lui-gradient-center" id="skills-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+      &lt;!-- Section - Works --&gt;
+			&lt;section class="lui-section lui-gradient-top" id="works-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+      &lt;!-- Section - Resume --&gt;
+			&lt;section class="lui-section lui-gradient-bottom" id="resume-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+      &lt;!-- Section - Testimonials --&gt;
+			&lt;section class="lui-section lui-gradient-center" id="testimonials-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+      &lt;!-- Section - Pricing --&gt;
+			&lt;section class="lui-section lui-gradient-center" id="pricing-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+      &lt;!-- Section - Blog --&gt;
+			&lt;section class="lui-section lui-gradient-top" id="blog-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+      &lt;!-- Section - Contacts --&gt;
+			&lt;section class="lui-section lui-gradient-bottom" id="contact-section"&gt;
+
+        ...
+
+      &lt;/section&gt;
+
+		&lt;/div&gt;
+
+		&lt;!-- Footer --&gt;
+		&lt;div class="footer"&gt;
+
+			...
+
+		&lt;/div&gt;
+
+	&lt;/div&gt;
+
+	&lt;!-- cursor --&gt;
+	&lt;div class="cursor"&gt;&lt;/div&gt;
+
+  &lt;script src="assets/js/jquery.min.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/jquery.validate.min.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/bootstrap.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/swiper.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/splitting.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/jarallax.min.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/magnific-popup.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/imagesloaded.pkgd.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/isotope.pkgd.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/jquery.scrolla.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/skrollr.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/jquery.cookie.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/typed.js"&gt;&lt;/script&gt;
+  &lt;script src="assets/js/common.js"&gt;&lt;/script&gt;
+
+&lt;/body&gt;
+&lt;/html&gt;
+					</code>
+				</pre>
+			</article>
+			<article id="html_structure_header" class="dt-section">
+				<h2 class="dt-title">HTML structure of "Header"</h2>
+				<pre class="code language-html">
+					<code>
+&lt;!-- Header --&gt;
+&lt;header class="header"&gt;
+	&lt;div class="header__builder"&gt;
+		&lt;div class="row"&gt;
+			&lt;div class="col-xs-4 col-sm-4 col-md-4 col-lg-4"&gt;
+
+				&lt;!-- logo --&gt;
+				&lt;div class="logo"&gt;
+					&lt;a href="index.html"&gt;
+						&lt;img width="228" height="38" src="assets/images/logo2.png" alt="" /&gt;
+					&lt;/a&gt;
+				&lt;/div&gt;
+
+			&lt;/div&gt;
+			&lt;div class="col-xs-8 col-sm-8 col-md-8 col-lg-8 align-right"&gt;
+
+				&lt;!-- switcher btn --&gt;
+				&lt;a href="#" class="switcher-btn"&gt;
+					&lt;span class="sw-before"&gt;
+						&lt;svg xmlns="http://www.w3.org/2000/svg" width="23" height="23" viewBox="0 0 23 23"&gt;
+							&lt;path id="Dark_Theme" data-name="Dark Theme" fill="#000" d="M1759.46,111.076a0.819,0.819,0,0,0-.68.147,8.553,8.553,0,0,1-2.62,1.537,8.167,8.167,0,0,1-2.96.531,8.655,8.655,0,0,1-8.65-8.682,9.247,9.247,0,0,1,.47-2.864,8.038,8.038,0,0,1,1.42-2.54,0.764,0.764,0,0,0-.12-1.063,0.813,0.813,0,0,0-.68-0.148,11.856,11.856,0,0,0-6.23,4.193,11.724,11.724,0,0,0,1,15.387,11.63,11.63,0,0,0,19.55-5.553A0.707,0.707,0,0,0,1759.46,111.076Zm-4.5,6.172a10.137,10.137,0,0,1-14.29-14.145,10.245,10.245,0,0,1,3.38-2.836c-0.14.327-.29,0.651-0.41,1.006a9.908,9.908,0,0,0-.56,3.365,10.162,10.162,0,0,0,10.15,10.189,9.776,9.776,0,0,0,3.49-.62,11.659,11.659,0,0,0,1.12-.473A10.858,10.858,0,0,1,1754.96,117.248Z" transform="translate(-1737 -98)" /&gt;
+						&lt;/svg&gt;
+					&lt;/span&gt;
+					&lt;span class="sw-after"&gt;
+						&lt;svg xmlns="http://www.w3.org/2000/svg" width="22.22" height="22.313" viewBox="0 0 22.22 22.313"&gt;
+							&lt;path id="Light_Theme" data-name="Light Theme" fill="#fff" d="M1752.49,105.511a5.589,5.589,0,0,0-3.94-1.655,5.466,5.466,0,0,0-3.94,1.655,5.61,5.61,0,0,0,3.94,9.566,5.473,5.473,0,0,0,3.94-1.653,5.643,5.643,0,0,0,1.65-3.957A5.516,5.516,0,0,0,1752.49,105.511Zm-1.06,6.85a4.1,4.1,0,0,1-5.76,0,4.164,4.164,0,0,1,0-5.788A4.083,4.083,0,0,1,1751.43,112.361Zm7.47-3.662h-2.27a0.768,0.768,0,0,0,0,1.536h2.27A0.768,0.768,0,0,0,1758.9,108.7Zm-10.35,8.12a0.777,0.777,0,0,0-.76.769v2.274a0.777,0.777,0,0,0,.76.767,0.786,0.786,0,0,0,.77-0.767v-2.274A0.786,0.786,0,0,0,1748.55,116.819Zm7.85-.531-1.62-1.624a0.745,0.745,0,0,0-1.06,0,0.758,0.758,0,0,0,0,1.063l1.62,1.625a0.747,0.747,0,0,0,1.06,0A0.759,0.759,0,0,0,1756.4,116.288ZM1748.55,98.3a0.777,0.777,0,0,0-.76.768v2.273a0.778,0.778,0,0,0,.76.768,0.787,0.787,0,0,0,.77-0.768V99.073A0.786,0.786,0,0,0,1748.55,98.3Zm7.88,3.278a0.744,0.744,0,0,0-1.06,0l-1.62,1.624a0.758,0.758,0,0,0,0,1.063,0.745,0.745,0,0,0,1.06,0l1.62-1.624A0.758,0.758,0,0,0,1756.43,101.583Zm-15.96,7.116h-2.26a0.78,0.78,0,0,0-.77.768,0.76,0.76,0,0,0,.77.768h2.26A0.768,0.768,0,0,0,1740.47,108.7Zm2.88,5.965a0.745,0.745,0,0,0-1.06,0l-1.62,1.624a0.759,0.759,0,0,0,0,1.064,0.747,0.747,0,0,0,1.06,0l1.62-1.625A0.758,0.758,0,0,0,1743.35,114.664Zm0-11.457-1.62-1.624a0.744,0.744,0,0,0-1.06,0,0.758,0.758,0,0,0,0,1.063l1.62,1.624a0.745,0.745,0,0,0,1.06,0A0.758,0.758,0,0,0,1743.35,103.207Z" transform="translate(-1737.44 -98.313)" /&gt;
+						&lt;/svg&gt;
+					&lt;/span&gt;
+				&lt;/a&gt;
+
+				&lt;!-- menu btn --&gt;
+				&lt;a href="#" class="menu-btn"&gt;
+					&lt;span&gt;&lt;/span&gt;
+					&lt;span&gt;&lt;/span&gt;
+				&lt;/a&gt;
+
+				&lt;!-- Menu Full Overlay --&gt;
+				&lt;div class="menu-full-overlay"&gt;
+					&lt;div class="menu-full-container"&gt;
+						&lt;div class="container"&gt;
+							&lt;div class="row"&gt;
+								&lt;div class="col-xs-12 col-sm-12 col-md-12 col-lg-12"&gt;
+
+									&lt;!-- menu full --&gt;
+									&lt;div class="menu-full"&gt;
+										&lt;ul class="menu-full"&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="index.html"&gt;Home&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#services-section"&gt;Services&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#skills-section"&gt;Skills&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#works-section"&gt;Works&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#resume-section"&gt;Resume&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#testimonials-section"&gt;Testimonials&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#pricing-section"&gt;Pricing&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#blog-section"&gt;Blog&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars" href="#contact-section"&gt;Contact&lt;/a&gt;
+											&lt;/li&gt;
+											&lt;li class="menu-item menu-item-has-children has-children"&gt;
+												&lt;a class="splitting-text-anim-2" data-splitting="chars"&gt;Pages&lt;/a&gt;
+												&lt;ul class="sub-menu"&gt;
+													&lt;li class="menu-item"&gt;
+														&lt;a class="splitting-text-anim-1" data-splitting="chars" href="works-list.html"&gt;Works (List)&lt;/a&gt;
+													&lt;/li&gt;
+													&lt;li class="menu-item"&gt;
+														&lt;a class="splitting-text-anim-1" data-splitting="chars" href="works.html"&gt;Works (Grid)&lt;/a&gt;
+													&lt;/li&gt;
+													&lt;li class="menu-item"&gt;
+														&lt;a class="splitting-text-anim-1" data-splitting="chars" href="work-single.html"&gt;Work Single Page&lt;/a&gt;
+													&lt;/li&gt;
+													&lt;li class="menu-item"&gt;
+														&lt;a class=" splitting-text-anim-1" data-splitting="chars" href="blog.html"&gt;Blog&lt;/a&gt;
+													&lt;/li&gt;
+													&lt;li class="menu-item"&gt;
+														&lt;a class="splitting-text-anim-1" data-splitting="chars" href="blog-single.html"&gt;Single Post&lt;/a&gt;
+													&lt;/li&gt;
+												&lt;/ul&gt;
+											&lt;/li&gt;
+										&lt;/ul&gt;
+									&lt;/div&gt;
+
+									&lt;!-- social --&gt;
+									&lt;div class="menu-social-links"&gt;
+										&lt;a href="http://dribbble.com" target="blank" class="scrolla-element-anim-1" title="dribbble"&gt;
+											&lt;i class="fab fa-dribbble"&gt;&lt;/i&gt;
+										&lt;/a&gt;
+										&lt;a href="http://twitter.com" target="blank" class="scrolla-element-anim-1" title="twitter"&gt;
+											&lt;i class="fab fa-twitter"&gt;&lt;/i&gt;
+										&lt;/a&gt;
+										&lt;a href="http://behance.com" target="blank" class="scrolla-element-anim-1" title="behance"&gt;
+											&lt;i class="fab fa-behance"&gt;&lt;/i&gt;
+										&lt;/a&gt;
+									&lt;/div&gt;
+
+									&lt;div class="v-line-block"&gt;&lt;span&gt;&lt;/span&gt;&lt;/div&gt;
+
+								&lt;/div&gt;
+							&lt;/div&gt;
+						&lt;/div&gt;
+					&lt;/div&gt;
+					&lt;div class="menu-overlay"&gt;&lt;/div&gt;
+				&lt;/div&gt;
+
+			&lt;/div&gt;
+		&lt;/div&gt;
+	&lt;/div&gt;
+&lt;/header&gt;
+					</code>
+				</pre>
+			</article>
+			<article id="html_structure_footer" class="dt-section">
+				<h2 class="dt-title">HTML structure of "Footer"</h2>
+				<pre class="code language-html">
+					<code>
+&lt;!-- Footer --&gt;
+&lt;div class="footer"&gt;
+	&lt;div class="footer__builder"&gt;
+		&lt;div class="container"&gt;
+			&lt;div class="row"&gt;
+				&lt;div class="col-xs-12 col-sm-12 col-md-4 col-lg-4"&gt;
+
+					&lt;div class="social-links scrolla-element-anim-1 scroll-animate" data-animate="active"&gt;
+						&lt;a target="_blank" rel="nofollow" href="http://twitter.com"&gt;
+							&lt;i aria-hidden="true" class="fab fa-twitter"&gt;&lt;/i&gt;
+						&lt;/a&gt;
+						&lt;a target="_blank" rel="nofollow" href="http://dribble.com"&gt;
+							&lt;i aria-hidden="true" class="fab fa-dribbble"&gt;&lt;/i&gt;
+						&lt;/a&gt;
+						&lt;a target="_blank" rel="nofollow" href="http://behance.com"&gt;
+							&lt;i aria-hidden="true" class="fab fa-behance"&gt;&lt;/i&gt;
+						&lt;/a&gt;
+					&lt;/div&gt;
+
+				&lt;/div&gt;
+				&lt;div class="col-xs-12 col-sm-12 col-md-4 col-lg-4"&gt;
+
+					&lt;div class="copyright-text align-center scrolla-element-anim-1 scroll-animate" data-animate="active"&gt;
+						© 2022 &lt;strong&gt;Luique&lt;/strong&gt;. All rights reserved
+					&lt;/div&gt;
+
+				&lt;/div&gt;
+				&lt;div class="col-xs-12 col-sm-12 col-md-4 col-lg-4"&gt;
+
+					&lt;div class="copyright-text align-right scrolla-element-anim-1 scroll-animate" data-animate="active"&gt;
+						Developed by &lt;strong&gt;bslthemes&lt;/strong&gt;
+					&lt;/div&gt;
+
+				&lt;/div&gt;
+			&lt;/div&gt;
+		&lt;/div&gt;
+	&lt;/div&gt;
+&lt;/div&gt;
+					</code>
+				</pre>
+			</article>
+			<article id="html_structure_home" class="dt-section">
+				<h2 class="dt-title">HTML structure of "Home" pages</h2>
+				<pre class="code language-html">
+					<code>
+&lt;!-- Wrapper --&gt;
+&lt;div class="wrapper"&gt;
+
+	&lt;!-- Section - Hero Started --&gt;
+	&lt;section class="lui-section lui-section-hero lui-gradient-top" id="started-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Services --&gt;
+	&lt;section class="lui-section lui-gradient-bottom" id="services-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Skills --&gt;
+	&lt;section class="lui-section lui-gradient-center" id="skills-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Works --&gt;
+	&lt;section class="lui-section lui-gradient-top" id="works-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Resume --&gt;
+	&lt;section class="lui-section lui-gradient-bottom" id="resume-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Testimonials --&gt;
+	&lt;section class="lui-section lui-gradient-center" id="testimonials-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Pricing --&gt;
+	&lt;section class="lui-section lui-gradient-center" id="pricing-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Blog --&gt;
+	&lt;section class="lui-section lui-gradient-top" id="blog-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+	&lt;!-- Section - Contacts --&gt;
+	&lt;section class="lui-section lui-gradient-bottom" id="contact-section"&gt;
+
+		...
+
+	&lt;/section&gt;
+
+&lt;/div&gt;
+					</code>
+				</pre>
+			</article>
+			<article id="icons" class="dt-section">
+				<h2 class="dt-title">Icons</h2>
+				<p>
+					In this template are defined some of classes for icons, your can see all icons here - https://fontawesome.com/icons?d=gallery&s=brands,solid&m=free
+				</p>
+			</article>
+			<article id="credits" class="dt-section">
+				<h2 class="dt-title">Sourse & Credits</h2>
+				<h3>Scripts</h3>
+				<ul class="dt-list dt-list_nested dt-info-block">
+					<li>
+						<span class="dt-label dt-label_bold">Animate.css</span> <a target="_blank" href="https://daneden.github.io/animate.css/">https://daneden.github.io/animate.css/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">jQuery</span> <a target="_blank" href="https://jquery.com/">https://jquery.com/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">Isotope</span> <a target="_blank" href="https://isotope.metafizzy.co/">https://isotope.metafizzy.co/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">imagesLoaded</span> <a target="_blank" href="http://imagesloaded.desandro.com/">http://imagesloaded.desandro.com/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">jQuery Validation Plugin</span> <a target="_blank" href="http://jqueryvalidation.org/">http://jqueryvalidation.org/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">Magnific Popup</span> <a target="_blank" href="http://dimsemenov.com/plugins/magnific-popup/">http://dimsemenov.com/plugins/magnific-popup/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">Swiper</span> <a target="_blank" href="https://swiperjs.com/">https://swiperjs.com/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">Bootstrap</span> <a target="_blank" href="https://getbootstrap.com/">https://getbootstrap.com/</a>
+					</li>
+                    <li>
+						<span class="dt-label dt-label_bold">Scrolla.js</span> <a target="_blank" href="https://github.com/maximzhurkin/jquery-scrolla">https://github.com/maximzhurkin/jquery-scrolla</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">skrollr.js</span> <a target="_blank" href="https://prinzhorn.github.io/skrollr/">https://prinzhorn.github.io/skrollr/</a>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">splitting.js</span> <a target="_blank" href="https://splitting.js.org/">https://splitting.js.org/</a>
+					</li>
+				</ul>
+				<h3>Fonts</h3>
+				<ul class="dt-list dt-list_nested dt-info-block">
+					<li>
+						<span class="dt-label dt-label_bold">Roboto</span>
+					</li>
+					<li>
+						<span class="dt-label dt-label_bold">Jost</span>
+					</li>
+                    <li>
+						<span class="dt-label dt-label_bold">FontAwesome - </span> <a target="_blank" href="https://fontawesome.com/icons?d=gallery&s=brands,solid&m=free">https://fontawesome.com/icons?d=gallery&s=brands,solid&m=free</a>
+					</li>
+				</ul>
+				<h3>Images</h3>
+				<p>Any Images or logos used in previews are not included in this item or final purchase.</p>
+				<ul class="dt-list dt-list_nested dt-info-block">
+					<li>
+						<span class="dt-label dt-label_bold">Pexels</span>
+					</li>
+				</ul>
+			</article>
+		</div>
+	</div>
+<script src="assets/rainbow-custom.min.js"></script>
+</body>
+</html>
