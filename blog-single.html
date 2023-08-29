@@ -178,10 +178,9 @@
   				<!-- Heading -->
 					<div class="m-titles align-center">
             <div class="m-category scrolla-element-anim-1 scroll-animate" data-animate="active">
-              <a href="blog.html">Branding</a>, <a href="blog.html">UI Design</a> / October 31, 2022 / by admin
-            </div>
+               July , 2023 / by niubizhou</div>
             <h1 class="m-title scrolla-element-anim-1 scroll-animate" data-animate="active">
-              The Main Thing For The Designer
+              2023 MICCAI 2D 全景图像的牙齿分割任务
             </h1>
 					</div>
 
@@ -208,15 +207,204 @@
               <!-- content -->
               <div class="description">
                 <div class="post-content scrolla-element-anim-1 scroll-animate" data-animate="active">
-                  <p>Vivamus interdum suscipit lacus. Nunc ultrices accumsan mattis. Aliquam vel sem vel velit efficitur malesuada. Donec arcu lacus, ornare eget ligula vel, commodo luctus felis. Ut dignissim sapien sit amet molestie rutrum. Orci varius natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Pellentesque in porta dolor, a suscipit risus. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras ac arcu in lorem rhoncus ullamcorper. Ut at nulla ut libero mollis viverra sed vitae purus.</p>
-                  <p>Nam dui mauris, congue vel nisi in, tempus gravida enim. Nulla et tristique orci. Pellentesque lectus sapien, maximus id gravida sit amet, tristique non eros. Etiam aliquet, sem vitae sagittis convallis, ante sapien tincidunt nisl, eget dapibus tortor velit quis ex. Proin et condimentum est, sed pretium ex. Mauris posuere est metus, vitae commodo sem posuere eget. Praesent maximus augue rutrum, consequat magna id, facilisis lorem. Quisque molestie, turpis ac interdum gravida</p>
-                  <blockquote>
-                    <p>Photography is the story I fail to put into words get ligula vel, commodo luctus felis. Ut dignissim sapien sit amet molestie rutr</p>
-                    <p><cite>&#8211; Destin Sparks</cite></p>
+                  <p>第一次尝试CV类型的模型搭建。目前转了一圈看下来，以我的能力暂定使用U-Net来作为这场比赛的模型。受限于水平，其他代码都直接用论坛中提供的《2D牙齿图像分割竞赛Baseline》代码。 模型尝试使用U-Net家族中的Res U-Net。</p>
+                 
+                  <div>
+                    <div>
+                      <p>首先看一下比赛提供的TEST与TRAIN文件。我的模型在colab上训练，已经上传好了对应文件。</p>
+                      <p>import zipfile # 解压缩测试文件&nbsp;</p>
+                      <p>f = zipfile.ZipFile("/content/drive/MyDrive/STS/originfile/image.zip",'r') # 压缩文件位置&nbsp;</p>
+                      <p>for file in f.namelist():&nbsp;</p>
+                      <p>&nbsp; &nbsp; print(file)&nbsp;</p>
+                      <p>&nbsp; &nbsp; f.extract(file,"/content/drive/MyDrive/STS/test") # 解压位置&nbsp;</p>
+                      <p>f.close()&nbsp;</p>
+                    </div>
+                  </div>
+<blockquote>
+                  <p>记得登录colab并从Google driver加载硬盘</p>
+
+<p><cite>&#8211; from google.colab import drive&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</cite></p>
+
+	<p><cite>&#8211; drive.mount('/content/drive')</cite></p>
                   </blockquote>
                   <p><br></p>
-                  <h3>Aliquam vel sem vel vellesuada</h3>
-                  <p>Vivamus interdum suscipit lacus. Nunc ultrices accumsan mattis. Aliquam vel sem vel velit efficitur malesuada. Donec arcu lacus, ornare eget ligula vel, commodo luctus felis. Ut dignissim sapien sit amet molestie rutrum. Orci varius natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Pellentesque in porta dolor, a suscipit risus. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras ac arcu in lorem rhoncus ullamcorper. Ut at nulla ut libero mollis viverra sed vitae purus.</p>
+                  <h3>导入对应的包&nbsp;</h3>
+                  <p>import os</p>
+<p>import numpy as np</p>
+<p>import random</p>
+<p>import matplotlib.pyplot as plt</p>
+<p>import tensorflow as tf</p>
+<p>from tensorflow.keras import layers, models</p>
+<p>from tensorflow.keras.applications import ResNet152</p>
+<p>from tensorflow.keras.layers import Activation, BatchNormalization, Conv2D, MaxPooling2D, ZeroPadding2D</p>
+<p>from tensorflow.keras.callbacks import TensorBoard</p>
+<p>from tensorflow.keras.initializers import HeNormal, GlorotNormal</p>
+<p>from tensorflow.keras.models import load_model</p>
+<p>from PIL import Image</p>
+					<h3>数据读取&nbsp;</h3>
+					<p>trainimage_path='/content/drive/MyDrive/STS/train/train/image'
+</p>
+<p>trainmask_path='/content/drive/MyDrive/STS/train/train/mask'
+</p>
+<p>data_filenames = os.listdir(trainimage_path)
+</p>
+<p>label_filenames = os.listdir(trainmask_path)
+</p>
+<p>data_filenames.sort()
+</p>
+<p>label_filenames.sort()
+</p>
+<p>data = [os.path.join(trainimage_path, i) for i in data_filenames]
+</p>
+<p>label = [os.path.join(trainmask_path, i) for i in label_filenames]
+</p>
+<p>dataset = tf.data.Dataset.from_tensor_slices((data,label))
+</p>
+<p>dataset = dataset.shuffle(buffer_size=len(dataset), seed=42)
+</p>
+<p>tf.config.run_functions_eagerly(True)
+</p>
+					<p>def _parse_function(data, label, typee):
+</p>
+<p>    image_decoded = tf.io.read_file(data)
+</p>
+<p>    image_decoded = tf.image.decode_png(image_decoded, channels=3)
+</p>
+<p>    image = tf.image.convert_image_dtype(image_decoded, tf.float32)
+</p>
+<p>    mask_decoded = tf.io.read_file(label)
+</p>
+<p>    mask_decoded = tf.image.decode_png(mask_decoded, channels=1)
+</p>
+<p>    mask = tf.image.convert_image_dtype(mask_decoded, tf.float32)
+</p>
+<p>    def data_augmentation(image, mask):
+</p>
+<p>        # 把图像尺寸放大
+</p>
+<p>        new_height = tf.cast(tf.cast(tf.shape(image)[0], tf.float32) * 1.15, tf.int32)
+</p>
+<p>        new_width = tf.cast(tf.cast(tf.shape(image)[1], tf.float32) * 1.15, tf.int32)
+</p>
+<p>        image = tf.image.resize(image, [new_height, new_width], method=tf.image.ResizeMethod.BILINEAR)
+</p>
+<p>        mask = tf.image.resize(mask, [new_height, new_width], method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
+</p>
+<p>        combineddata = tf.concat([image, mask], axis=-1)
+</p>
+<p>        combined_shape = tf.shape(combineddata)
+</p>
+<p>        combineddata = tf.image.random_flip_left_right(combineddata)
+</p>
+<p>        combineddata = tf.image.random_crop(combineddata, [320, 640, combined_shape[-1]])
+</p>
+<p>        image = combineddata[..., :-1]  # 去除最后一个通道，得到图像
+</p>
+<p>        mask = combineddata[..., -1:]
+</p>
+<p>        return image, mask
+</p>
+<p>    if typee == "train":
+</p>
+					<p>        image, mask = data_augmentation(image, mask)
+</p>
+					<p>    return image, mask
+</p>
+					<p>BATCH_SIZE = 8
+</p>
+					<p>train_dataset = dataset.map(lambda data, label: _parse_function(data, label, typee = "train"))
+</p>
+					<p>train_dataset = train_dataset.batch(BATCH_SIZE)
+</p>
+					<p>train_dataset = train_dataset.prefetch(tf.data.experimental.AUTOTUNE)
+</p>
+					<p>val_dataset = dataset.map(lambda data, label: _parse_function(data, label, 0))
+</p>
+					<p>val_dataset = val_dataset.batch(BATCH_SIZE)
+</p>
+					<p>val_dataset = val_dataset.prefetch(tf.data.experimental.AUTOTUNE)
+</p>
+					<p>val_dataset = val_dataset.take(5)
+</p>
+					<p>train_dataset = train_dataset.skip(5)
+</p>
+					<h3>定义模型
+ 这里使用的模型是 ResNet152。由编码器（下采样器）和解码器（上采样器）组成。&nbsp;</h3>
+					<p>def dice_loss(y_true, y_pred):</p>
+					<p>    smooth = 1e-5  # 平滑因子，避免分母为0</p>
+					<p>    intersection = tf.reduce_sum(y_true * y_pred)</p>
+					<p>    union = tf.reduce_sum(y_true) + tf.reduce_sum(y_pred)</p>
+					<p>    dice = (2. * intersection + smooth) / (union + smooth)</p>
+					<p>    dice_loss = 1. - dice</p>
+					<p>    return dice_loss</p>
+					<p>def binary_crossentropy_loss(y_true, y_pred):</p>
+					<p>    return tf.keras.losses.binary_crossentropy(y_true, y_pred)</p>
+					<p>def total_loss(y_true, y_pred):</p>
+					<p>    dice = dice_loss(y_true, y_pred)</p>
+					<p>    bce = binary_crossentropy_loss(y_true, y_pred)</p>
+					<p>    total_loss = 0.1 * bce + 0.9 * dice  # 根据需求调整权重</p>
+					<p>    return total_loss</p>
+					<p># 定义保存权重的路径和文件名格式</p>
+					<p>checkpoint_dir = "/content/drive/MyDrive/STS/models"</p>
+					<p>checkpoint_path = os.path.join(checkpoint_dir, "loss-{loss:.4f}_accuracy-{accuracy:.4f}.h5")</p>
+					<p># 创建保存每个 epoch 权重的回调函数</p>
+					<p>checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(</p>
+					<p>    filepath=checkpoint_path,</p>
+					<p>    save_weights_only=True,</p>
+					<p>    save_best_only=False,</p>
+					<p>    save_freq='epoch',</p>
+					<p>    verbose=1)</p>
+				  <p>tensorboard_callback = TensorBoard(log_dir="./logs", update_freq='epoch', write_graph=True, write_images=True)</p>
+				  <p>def unet_with_resnet(input_shape):</p>
+<p>    # 使用ResNet152作为编码器</p>
+<p>    resnet = ResNet152(input_shape=input_shape, include_top=False, weights='imagenet')</p>
+<p></p>
+<p>    # 锁定ResNet的权重，这样在训练过程中只会更新U-Net的权重</p>
+<p>    resnet.trainable = False</p>
+<p></p>
+<p>    # 获取ResNet的输出张量</p>
+<p>    resnet_output = resnet.output#(10,20)</p>
+<p></p>
+<p>    # 解码器部分</p>
+<p>    up1 = layers.UpSampling2D(size=(2, 2), interpolation='bilinear')(resnet_output)#(20,40)</p>
+<p>    up1 = layers.Conv2D(512, 2, activation='relu', padding='same', kernel_initializer=HeNormal())(up1)#(20,40,512)提取特征通道</p>
+<p>    merge1 = layers.concatenate([resnet.layers[482].output, up1], axis=3)</p>
+<p></p>
+<p>    conv6 = layers.Conv2D(512, 3, activation='relu', padding='same')(merge1)</p>
+<p>    conv6 = layers.Conv2D(512, 3, activation='relu', padding='same')(conv6)</p>
+<p>    conv6 = layers.Conv2D(512, 3, activation='relu', padding='same')(conv6)</p>
+<p>    conv6 = layers.Conv2D(512, 3, activation='relu', padding='same')(conv6)</p>
+<p>    conv6 = layers.Conv2D(512, 3, activation='relu', padding='same')(conv6)</p>
+<p>    up2 = layers.UpSampling2D(size=(2, 2))(conv6)</p>
+<p>    up2 = layers.Conv2D(256, 2, activation='relu', padding='same')(up2)</p>
+<p>    merge2 = layers.concatenate([resnet.layers[120].output, up2], axis=3)</p>
+<p></p>
+<p>    conv7 = layers.Conv2D(256, 3, activation='relu', padding='same')(merge2)</p>
+<p>    conv7 = layers.Conv2D(256, 3, activation='relu', padding='same')(conv7)</p>
+<p>    conv7 = layers.Conv2D(256, 3, activation='relu', padding='same')(conv7)</p>
+<p>    conv7 = layers.Conv2D(256, 3, activation='relu', padding='same')(conv7)</p>
+<p>    up3 = layers.UpSampling2D(size=(2, 2))(conv7)</p>
+<p>    up3 = layers.Conv2D(128, 2, activation='relu', padding='same')(up3)</p>
+<p>    merge3 = layers.concatenate([resnet.layers[38].output, up3], axis=3)</p>
+<p></p>
+<p>    conv8 = layers.Conv2D(128, 3, activation='relu', padding='same')(merge3)</p>
+<p>    conv8 = layers.Conv2D(128, 3, activation='relu', padding='same')(conv8)</p>
+<p>    conv8 = layers.Conv2D(128, 3, activation='relu', padding='same')(conv8)</p>
+<p>    up4 = layers.UpSampling2D(size=(2, 2))(conv8)</p>
+				  <p>    up4 = layers.Conv2D(64, 2, activation='relu', padding='same'</p>
+									<p>    merge4 = layers.concatenate([resnet.layers[4].output, up4], axis=3)</p>
+				<p>    conv9 = layers.Conv2D(64, 3, activation='relu', padding='same')(merge4)</p>
+				<p>    conv9 = layers.Conv2D(64, 3, activation='relu', padding='same')(conv9)</p>
+				<p>    up_final = layers.UpSampling2D(size=(2, 2), interpolation='bilinear')(conv9)</p>
+				<p>    outputs = layers.Conv2D(1, 1, activation='sigmoid', padding='same', name='output')(up_final)</p>
+				<p>    model = models.Model(inputs=resnet.input, outputs=outputs)</p>
+				<p>    return model</p>
+				<p>input_shape = (320, 640, 3)</p>
+				<p>model = unet_with_resnet(input_shape)</p>
+				<p>adam_optimizer = tf.keras.optimizers.Adam()</p>
+				<p>model.compile(optimizer=adam_optimizer, loss=total_loss, metrics=["accuracy"])</p>
+<p>model.load_weights("/content/drive/MyDrive/STS/models/1.0倍图训练 loss-0.0755_accuracy-0.9681.h5")</p>
+					<p>model.fit(train_dataset, validation_data=val_dataset, epochs=50, shuffle=True, callbacks=[checkpoint_callback,tensorboard_callback])</p>
                   <ul class="gallery gallery-columns-2">
                     <li class="gallery-item">
                       <figure>
@@ -229,22 +417,10 @@
                       </figure>
                     </li>
                   </ul>
-                  <p>Nam dui mauris, congue vel nisi in, tempus gravida enim. Nulla et tristique orci. Pellentesque lectus sapien, maximus id gravida sit amet, tristique non eros. Etiam aliquet, sem vitae sagittis convallis, ante sapien tincidunt nisl, eget dapibus tortor velit quis ex. Proin et condimentum est, sed pretium ex. Mauris posuere est metus, vitae commodo sem posuere eget. Praesent maximus augue rutrum, consequat magna id, facilisis lorem. Quisque molestie, turpis ac interdum gravida</p>
-                  <ul>
-                    <li>Donec arcu lacus, ornare eget ligula vel, commodo luctus felis.</li>
-                    <li>Ut dignissim sapien sit amet molestie rutrum.</li>
-                    <li>Orci varius natoque penatibus et magnis dis parturient montes.</li>
-                    <li>Ut at nulla ut libero mollis viverra sed vitae purus.</li>
-                  </ul>
-                  <p>Nam dui mauris, congue vel nisi in, tempus gravida enim. Nulla et tristique orci. Pellentesque lectus sapien, maximus id gravida sit amet, tristique non eros. Etiam aliquet, sem vitae sagittis convallis, ante sapien tincidunt nisl, eget dapibus tortor velit quis ex.</p>
+                  <p>先用原图对模型进行训练，训练loss达到0.07时对数据进行调整。放大为1.1倍图片继续用原图的权重进行迁移训练。最总loss到达0.06。</p>
+                	
+         
 
-                  <span class="tags-links">
-                    <span>Tags:</span>
-                    <a href="#">Design</a>
-                    <a href="#">HTML</a>
-                    <a href="#">UX</a>
-                    <a href="#">WordPress</a>
-                  </span>
                 </div>
               </div>
 
@@ -253,67 +429,10 @@
                 <div class="section__comments">
 
                   <div class="m-titles">
-                    <div class="m-title align-left">2 Comments</div>
+                   
                   </div>
 
-                  <ul class="comments">
-                    <li class="comment comment-item">
-                      <div class="comment comment-box">
-                        <img src="assets/images/avatar.png" class="avatar" alt="" >
-                        <div class="comment-box__body">
-                          <div class="content-caption post-content description">
-                            <h5 class="comment-box__details">Robert Brown <span>December 9, 2021</span></h5>
-                            <p>Nam dui mauris, congue vel nisi in, tempus gravida enim. Nulla et tristique orci. Pellentesque lectus sapien, maximus id gravida sit amet, tristique non eros. Etiam aliquet, sem vitae sagittis convallis, ante sapien tincidunt nisl, eget dapibus tortor velit quis ex.</p>
-                          </div>
-                        </div>
-                        <div class="comment-footer">
-                          <a class="comment-reply-link" href="#">Reply</a>
-                        </div>
-                      </div>
-                    </li>
-                    <li class="comment comment-item">
-                      <div class="comment comment-box">
-                        <img src="assets/images/avatar.png" class="avatar" alt="" >
-                        <div class="comment-box__body">
-                          <div class="content-caption post-content description">
-                            <h5 class="comment-box__details">Ryan Berg <span>December 9, 2021</span></h5>
-                            <p>Proin et condimentum est, sed pretium ex. Mauris posuere est metus, vitae commodo sem posuere eget.</p>
-                          </div>
-                        </div>
-                        <div class="comment-footer">
-                          <a class="comment-reply-link" href="#">Reply</a>
-                        </div>
-                      </div>
-                    </li>
-                  </ul>
-
-                  <div class="form-comment">
-                    <div class="comment-respond">
-                      <div class="m-titles">
-                        <div class="m-title align-left">Leave a comment</div>
-                      </div>
-                      <form method="post" class="comment-form">
-                        <div class="group-row">
-                          <div class="group">
-                            <textarea class="textarea" name="comment" rows="3" placeholder="Comment"></textarea>
-                          </div>
-                        </div>
-                        <div class="group-row">
-                          <div class="group">
-                            <input type="text" name="author" class="input" placeholder="Name" >
-                          </div>
-                          <div class="group">
-                            <input type="text" name="email" class="input" placeholder="Email" >
-                          </div>
-                        </div>
-                        <div class="group-row">
-                          <div class="group">
-                            <button type="submit" name="submit" class="btn">Submit</button>
-                          </div>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
+                  
 
                 </div>
               </div>
@@ -338,7 +457,7 @@
       							Next Article
                   </span>
       						<span class="h-title splitting-text-anim-2 scroll-animate" data-splitting="chars" data-animate="active">
-      							Follow Your Own Design Process
+      							Do everything what's your favorite.
                   </span>
       					</a>
       				</div>
@@ -355,33 +474,8 @@
 			<div class="footer__builder">
         <div class="container">
           <div class="row">
-            <div class="col-xs-12 col-sm-12 col-md-4 col-lg-4">
-
-              <div class="social-links scrolla-element-anim-1 scroll-animate" data-animate="active">
-                <a target="_blank" rel="nofollow" href="http://twitter.com">
-                  <i aria-hidden="true" class="fab fa-twitter"></i>
-                </a>
-                <a target="_blank" rel="nofollow" href="http://dribble.com">
-                  <i aria-hidden="true" class="fab fa-dribbble"></i>
-                </a>
-                <a target="_blank" rel="nofollow" href="http://behance.com">
-                  <i aria-hidden="true" class="fab fa-behance"></i>
-                </a>
-              </div>
-
-            </div>
-            <div class="col-xs-12 col-sm-12 col-md-4 col-lg-4">
-
-              <div class="copyright-text align-center scrolla-element-anim-1 scroll-animate" data-animate="active">
-                © 2022 <strong>Luique</strong>. All rights <a href="http://www.bootstrapMB.com">bootstrapMB</a>
-              </div>
-
-            </div>
-            <div class="col-xs-12 col-sm-12 col-md-4 col-lg-4">
-
-              <div class="copyright-text align-right scrolla-element-anim-1 scroll-animate" data-animate="active">
-                Developed by <strong>bslthemes</strong>
-              </div>
+            
+              
 
             </div>
           </div>
