@@ -552,7 +552,7 @@ function checkGlassBrickClick(clientX, clientY) {
 
  // --- 3. 粒子系统 (Golden Spores) ---
 
-        const particleCount = 8000; // 粒子总数
+        const particleCount = 5000; // 粒子总数
         const particleGeo = new THREE.BufferGeometry();
         
         // 创建位置数组：每个粒子有 x,y,z 三个坐标
@@ -638,14 +638,14 @@ function checkGlassBrickClick(clientX, clientY) {
                 gl_Position = projectionMatrix * mvPosition;
 
                 // 设置粒子大小：近大远小
-                float baseSize = 2.0 + seed * 2.5;
+                float baseSize = 3.0 + seed * 2.5;
                 gl_PointSize = baseSize * (50.0 / -mvPosition.z);
                 
                 float lifeAlpha = sin(life * 3.14159265); 
                 vAlphaModifier = lifeAlpha; 
 
                 // 【新增】计算闪烁效果：利用不同的频率和种子让每个粒子独立闪烁
-                vTwinkle = sin(uTime * (3.0 + seed * 5.0) + seed * 6.28) * 0.5 + 0.01; // 归一化到 0~1
+                vTwinkle = sin(uTime * (3.0 + seed * 5.0) + seed * 6.28) * 0.5 + 0.1; // 归一化到 0~1
             }
         `;
 
