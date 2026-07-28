@@ -165,6 +165,51 @@
             mouse.x = e.clientX;
             mouse.y = e.clientY;
         });
+        
+function collectBrick(brick) {
+    // 1. 将物品数据加入背包
+    inventory.push({
+        id: brick.userData.id,
+        collectedTime: Date.now()
+    });
+    console.log("当前背包内容：", inventory);
+
+    // 2. 从场景中彻底移除该玻璃砖网格
+    scene.remove(brick);
+    
+    // 3. 从总数组和组中剔除，防止继续参与动画循环或碰撞
+    const index = glassBricks.indexOf(brick);
+    if (index > -1) {
+        glassBricks.splice(index, 1);
+    }
+
+    // 4. 可选：触发震动反馈（移动端有效）
+    if (navigator.vibrate) navigator.vibrate(50);
+    
+    // 5. 可选：你可以在这里调用前端UI展示，比如弹出提示“成功获得一块琥珀玻璃”
+}
+
+        // 检测点击玻璃砖的函数
+function checkGlassBrickClick(clientX, clientY) {
+    mouseVector.x = (clientX / window.innerWidth) * 2 - 1;
+    mouseVector.y = -(clientY / window.innerHeight) * 2 + 1;
+    
+    raycaster.setFromCamera(mouseVector, camera);
+    
+    // 对 glassBricks 数组里的所有玻璃砖进行相交检测
+    const intersects = raycaster.intersectObjects(glassBricks);
+    
+    if (intersects.length > 0) {
+        // 获取被点击的第一块玻璃砖
+        const clickedBrick = intersects[0].object;
+        
+        // 执行拾取逻辑
+        collectBrick(clickedBrick);
+        
+        return true; // 表示点中了玻璃砖
+    }
+    return false;
+}
 
         // 调整 Canvas 尺寸
         function resizeFirefly() {
@@ -750,9 +795,10 @@
             );
 
             // 随机坐标生成
-            const randomX = (Math.random() - 0.5) * 70;
+            const randomX = (Math.random() - 0.5) * 45;
             const randomZ = 5 - Math.random() * 155;
-            const randomY = 1.5 + Math.random() * 6.5;
+            const surfaceY = getCpuElevation(randomX, randomZ);
+const randomY = surfaceY + 0.2;
 
             brick.position.set(randomX, randomY, randomZ);
 
@@ -850,11 +896,18 @@
             targetScrollY = currentScrollY; 
             isDragging = false; 
 
-            // 清除之前的定时器
+// 清除之前的定时器
             if (longPressTimer) clearTimeout(longPressTimer);
             
-            // 如果不在聚焦模式，启动长按判定
-            if (!isFocused) {
+            // ==========================================
+            // 【修改处】拦截逻辑：
+            // 1. 检查当前是否点击在屏幕上半部分 (startY < window.innerHeight * 0.5)
+            // 2. 如果满足，则直接跳过，不注册长按聚焦
+            // ==========================================
+            const isTopHalf = startY < window.innerHeight * 0.45;
+
+            // 如果不在聚焦模式，且不是点击在上半部分，才启动长按判定
+            if (!isFocused && !isTopHalf) {
                 longPressTimer = setTimeout(() => {
                     if (!isDragging) {
                         triggerFocus(startX, startY);
@@ -914,30 +967,34 @@
             }
         }
         function onPointerUp(e) {
-            if (longPressTimer) {
-                clearTimeout(longPressTimer);
-                longPressTimer = null;
-            }
+    if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+    }
 
-            // 如果发生过拖拽，说明用户的意图是移动视角，不触发退出
-            const wasDragging = isDragging;
-            isDragging = false;
+    const wasDragging = isDragging;
+    isDragging = false;
 
-            // 退出聚焦逻辑：未拖拽(轻触) + 当前处于聚焦 + 距离上次触发超过 500ms(防误退)
-            if (!wasDragging && isFocused) {
-                const timeSinceFocus = Date.now() - lastFocusTime;
-                if (timeSinceFocus > 500) {
-                    isFocused = false;
-                    if (navigator.vibrate) navigator.vibrate(15);
-                    console.log("Focus Mode Deactivated");
-                }
-            }
-
-            // 重新同步漫游相机的基准
-            startCamZ = baseCamZ - (targetScrollY * 0.025);
-            startCamX = targetMouseX * 4.0;
+    // 【新增】如果刚才没有发生拖拽（即判定为纯点击/轻触），先检测有没有点中玻璃砖
+    if (!wasDragging) {
+        const hitBrick = checkGlassBrickClick(e.clientX, e.clientY);
+        if (hitBrick) {
+            return; // 如果点中了玻璃砖并收进了背包，就不再执行后面的漫游/聚焦逻辑
         }
+    }
 
+    // 退出聚焦逻辑：未拖拽(轻触) + 当前处于聚焦 + 距离上次触发超过 500ms(防误退)
+    if (!wasDragging && isFocused) {
+        const timeSinceFocus = Date.now() - lastFocusTime;
+        if (timeSinceFocus > 500) {
+            isFocused = false;
+            if (navigator.vibrate) navigator.vibrate(15);
+        }
+    }
+
+    startCamZ = baseCamZ - (targetScrollY * 0.025);
+    startCamX = targetMouseX * 4.0;
+}
         // 使用 Pointer Events 替代 mouse 和 touch
         window.addEventListener('pointerdown', onPointerDown, { passive: false });
         window.addEventListener('pointermove', onPointerMove, { passive: false });
@@ -1053,13 +1110,13 @@ function clamp(val, min, max) {
             // ==========================================
             glassBricks.forEach(brick => {
                 const data = brick.userData;
-                // 缓慢自转
-                brick.rotation.x += data.rotSpeedX;
-                brick.rotation.y += data.rotSpeedY;
+                // // 缓慢自转
+                // brick.rotation.x += data.rotSpeedX;
+                // brick.rotation.y += data.rotSpeedY;
                 
-                // 正弦波上下呼吸悬浮动画
-                // 根据当前时间和随机属性，产生高低起伏
-                brick.position.y = data.baseY + Math.sin(time * data.floatSpeed + data.floatOffset) * 0.5;
+                // // 正弦波上下呼吸悬浮动画
+                // // 根据当前时间和随机属性，产生高低起伏
+                // brick.position.y = data.baseY + Math.sin(time * data.floatSpeed + data.floatOffset) * 0.05;
             });
 
             // 原有代码
