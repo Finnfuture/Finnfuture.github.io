@@ -552,7 +552,7 @@ function checkGlassBrickClick(clientX, clientY) {
 
  // --- 3. 粒子系统 (Golden Spores) ---
 
-        const particleCount = 10000; // 粒子总数
+        const particleCount = 5000; // 粒子总数
         const particleGeo = new THREE.BufferGeometry();
         
         // 创建位置数组：每个粒子有 x,y,z 三个坐标
@@ -572,11 +572,12 @@ function checkGlassBrickClick(clientX, clientY) {
         // 将位置数据绑定到几何体
         particleGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
 
-        // === 粒子顶点着色器 ===
+// === 粒子顶点着色器 ===
         const particleVertex = /* glsl */ `
             uniform float uTime;
             varying vec3 vViewPosition;
             varying float vAlphaModifier; // 自定义变量：用于控制透明度
+            varying float vTwinkle;       // 新增：闪烁因子
 
             // 再次复制噪声函数 (为了计算地形高度)
             float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -617,25 +618,18 @@ function checkGlassBrickClick(clientX, clientY) {
                 float pureWaveHeight = surfaceHeight - mountains;
 
                 // 【核心逻辑 1】：谷底遮罩
-                // 如果 pureWaveHeight > 0.9 (即在山坡或山顶)，valleyMask 变为 0
-                // 这意味着粒子只会出现在低洼处
                 float valleyMask = 1.0 - smoothstep(0.0, 0.8, pureWaveHeight);
 
                 // 【核心逻辑 2】：生命周期
-                // 利用时间 uTime 和种子 seed，让每个粒子有不同的运动相位
                 float speed = 0.03 + seed * 0.02; 
-                // fract() 取小数部分，使 life 在 0.0 到 1.0 之间无限循环
                 float life = fract(uTime * speed + seed); 
 
                 // 【核心逻辑 3】：上升运动
-                // 粒子从地面 (life=0) 上升到 15.0 单位高度 (life=1)
                 float riseHeight = life * 15.0; 
                 
-                // 添加水平方向的漂移，模拟风吹效果
                 pos.x += sin(uTime * 0.3 + seed * 10.0) * life * 2.0;
                 pos.z += cos(uTime * 0.2 + seed * 10.0) * life * 2.0;
                 
-                // 最终高度 = 地面高度 + 上升高度
                 pos.y += surfaceHeight + riseHeight + 0.1;
 
                 // 坐标变换
@@ -647,20 +641,19 @@ function checkGlassBrickClick(clientX, clientY) {
                 float baseSize = 2.0 + seed * 2.5;
                 gl_PointSize = baseSize * (50.0 / -mvPosition.z);
                 
-                // 【核心逻辑 4】：淡入淡出
-                // 正弦波：life=0时值为0，life=0.5时值为1，life=1时值为0
-                // 这样粒子会在升起过程中逐渐显现，然后消失
                 float lifeAlpha = sin(life * 3.14159265); 
-                
-                // 综合透明度 = 地形遮罩 * 生命周期透明度
                 vAlphaModifier = lifeAlpha; 
+
+                // 【新增】计算闪烁效果：利用不同的频率和种子让每个粒子独立闪烁
+                vTwinkle = sin(uTime * (3.0 + seed * 5.0) + seed * 6.28) * 0.5 + 0.01; // 归一化到 0~1
             }
         `;
 
-        // === 粒子片元着色器 ===
-                const particleFragment = /* glsl */ `
+// === 粒子片元着色器 ===
+        const particleFragment = /* glsl */ `
             varying vec3 vViewPosition;
             varying float vAlphaModifier; 
+            varying float vTwinkle; // 新增接收闪烁因子
             
             void main() {
                 if (vAlphaModifier <= 0.01) discard; 
@@ -671,19 +664,11 @@ function checkGlassBrickClick(clientX, clientY) {
                 
                 float baseAlpha = pow(1.0 - (distFromCenter * 2.0), 1.8);
                 
-                // 计算当前像素到相机的距离
                 float dist = length(vViewPosition);
 
-                // === 新增：近距离淡出逻辑 (Near Fade) ===
-                // 当距离小于 3.0 时开始变透明，小于 1.0 时完全消失
-                // 这防止了粒子穿过相机时突然放大或贴脸显示的突兀感
                 float nearFade = smoothstep(1.0, 3.0, dist);
-
-                // === 原有：远距离雾效逻辑 (Far Fog) ===
-                // 距离大于 5.0 开始变淡，70.0 完全消失
                 float farFog = smoothstep(5.0, 70.0, dist);
                 
-                // 如果太远，直接丢弃
                 if (farFog >= 1.0) discard; 
 
                 vec3 color = vec3(1.0, 0.75, 0.1); 
@@ -691,8 +676,11 @@ function checkGlassBrickClick(clientX, clientY) {
                     color = vec3(1.0, 0.9, 0.5); 
                 }
 
-                // 综合透明度：基础形状 * 生命周期/地形遮罩 * 近处淡出 * 远处雾气
-                float finalAlpha = baseAlpha * vAlphaModifier * nearFade * (1.0 - farFog) * 0.8;
+                // 【修改】将闪烁因子 vTwinkle 乘入透明度，并调整闪烁深度（这里保持 0.4~1.0 的亮度抖动，避免完全灭掉）
+                float twinkleFactor = mix(0.4, 1.0, vTwinkle);
+
+                // 综合透明度：基础形状 * 生命周期 * 闪烁 * 近处淡出 * 远处雾气
+                float finalAlpha = baseAlpha * vAlphaModifier * twinkleFactor * nearFade * (1.0 - farFog) * 0.8;
                 
                 gl_FragColor = vec4(color, finalAlpha);
             }
