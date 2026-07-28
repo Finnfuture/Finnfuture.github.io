@@ -1,920 +1,1073 @@
-﻿<!doctype html>
-<html lang="en-US">
+<!DOCTYPE html>
+<html lang="en">
 <head>
+    <!-- 设置字符编码为 UTF-8，防止乱码 -->
+    <meta charset="UTF-8">
+    <!-- 视口设置：禁止用户缩放，适配移动端屏幕宽度 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <title>temp</title>
+    <style>
+        /* CSS 重置：去除所有元素默认的边距和填充 */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        ::-webkit-scrollbar {
+    display: none;
+}
+        /* body 和 html 占满全屏，背景纯黑，隐藏横向滚动条，鼠标变为十字准星 */
+                body, html {
+    width: 100%; 
+    background: #000000;
+    overflow-x: hidden; 
+    /* --- 新增：禁止文本选择和长按菜单 --- */
+    user-select: none;             /* 标准语法 */
+    -webkit-user-select: none;     /* Chrome/Safari */
+    -moz-user-select: none;        /* Firefox */
+    -ms-user-select: none;         /* IE/Edge */
+    -webkit-touch-callout: none;   /* iOS Safari: 禁止长按弹出链接/图片菜单 */
+    /* 仅在非触摸设备上隐藏鼠标 */
+    @media (hover: hover) { cursor: none; }
+    -webkit-tap-highlight-color: transparent;
+    /* 关键：禁止浏览器默认的触摸滚动行为，完全交由 JS 控制 */
+    touch-action: none;
+    overscroll-behavior: none;
+    
+}
 
-  <title>FINN - Personal Portfolio HTML Template - shared on themelock.com</title>
-  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-  <meta http-equiv="X-UA-Compatible" content="IE=edge">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="HandheldFriendly" content="true">
-  <meta name="author" content="bslthemes" >
+        /* 新增：萤火虫绘制层，位于最顶层，不阻挡鼠标事件 */
+        #firefly-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 让鼠标事件穿透到下层 */
+            z-index: 9999;
+        }
 
-  <!-- Fonts -->
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Jost%3A0%2C100%3B0%2C200%3B0%2C300%3B0%2C400%3B0%2C500%3B0%2C600%3B0%2C700%3B0%2C800%3B0%2C900%3B1%2C100%3B1%2C200%3B1%2C300%3B1%2C400%3B1%2C500%3B1%2C600%3B1%2C700%3B1%2C800%3B1%2C900%7CCaveat%3A400%3B500%3B600%3B700&#038;display=swap" type="text/css" media="all" >
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto%3A100%2C100italic%2C200%2C200italic%2C300%2C300italic%2C400%2C400italic%2C500%2C500italic%2C600%2C600italic%2C700%2C700italic%2C800%2C800italic%2C900%2C900italic%7CRoboto+Slab%3A100%2C100italic%2C200%2C200italic%2C300%2C300italic%2C400%2C400italic%2C500%2C500italic%2C600%2C600italic%2C700%2C700italic%2C800%2C800italic%2C900%2C900italic&#038;display=auto" type="text/css" media="all" >
 
-  <!-- CSS STYLES -->
-  <link rel="stylesheet" href="assets/css/vendors/bootstrap.css" type="text/css" media="all" >
-  <link rel="stylesheet" href="assets/fonts/font-awesome/css/font-awesome.css" type="text/css" media="all" >
-  <link rel="stylesheet" href="assets/css/vendors/magnific-popup.css" type="text/css" media="all" >
-  <link rel="stylesheet" href="assets/css/vendors/splitting.css" type="text/css" media="all" >
-  <link rel="stylesheet" href="assets/css/vendors/swiper.css" type="text/css" media="all" >
-  <link rel="stylesheet" href="assets/css/vendors/animate.css" type="text/css" media="all" >
-  <link rel="stylesheet" href="assets/css/style.css" type="text/css" media="all" >
-  <link rel="stylesheet" href="assets/css/dark.css" type="text/css" media="all" >
+        /* 
+           滚动容器：高度设为 350vh (视口高度的3.5倍)。
+           这创造了“虚拟滚动条”，让用户可以向下滚动，从而触发 JS 中的相机移动逻辑。
+        */
+        #scroll-runtime-container { 
+            height: 400vh; 
+            width: 100%; 
+            position: relative; 
+        }
 
-  <!-- Favicon -->
-	<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
-	<link rel="icon" href="favicon.ico" type="image/x-icon">
+        /* 
+           Canvas 容器：固定在屏幕左上角，覆盖整个屏幕。
+           z-index: 1 确保它显示在其他内容之上（如果有的话）。
+        */
+        #canvas-container {
+            position: fixed; 
+            top: 0; 
+            left: 0;
+            width: 100%; 
+            height: 100%; 
+            z-index: 1;
+        }
+                /* --- 竖屏提示样式 --- */
+        #orientation-warning {
+            display: none; /* 默认隐藏 */
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #000000;
+            z-index: 10000; /* 确保在所有内容之上 */
+            color: #fff;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            font-family: sans-serif;
+        }
 
+        .warning-content p {
+            font-size: 18px;
+            margin-bottom: 10px;
+            opacity: 0.8;
+        }
+        
+        .warning-content strong {
+            font-size: 24px;
+            color: #ffd700; /* 金色高亮 */
+        }
+
+        .icon {
+            font-size: 40px;
+            display: block;
+            animation: rotate-icon 2s infinite linear;
+        }
+
+        @keyframes rotate-icon {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(90deg); }
+        }
+
+        /* 【关键】仅当屏幕高度大于宽度（竖屏）时显示 */
+        @media screen and (orientation: portrait) {
+            #orientation-warning {
+                display: flex;
+            }
+        }
+
+    </style>
 </head>
-
-<body class="home light-skin">
-	<div class="container-page">
-
-		<!-- Preloader -->
-		<div class="preloader">
-			<div class="centrize full-width">
-				<div class="vertical-center">
-					<div class="spinner-logo">
-						<img src="assets/images/logo2.png" alt="FINN - Personal Portfolio HTML Template" >
-						<div class="spinner-dot"></div>
-						<div class="spinner spinner-line"></div>
-					</div>
-				</div>
-			</div>
-		</div>
-
-		<!-- Header -->
-		<header class="header">
-			<div class="header__builder">
-        <div class="row">
-          <div class="col-xs-4 col-sm-4 col-md-4 col-lg-4">
-
-            <!-- logo -->
-            <div class="logo">
-              <a href="index.html">
-                <img width="229" height="38" src="assets/images/logo2.png" alt="" >
-              </a>
-            </div>
-
-          </div>
-          <div class="col-xs-8 col-sm-8 col-md-8 col-lg-8 align-right">
-
-						<!-- switcher btn -->
-						<a href="#" class="switcher-btn">
-							<span class="sw-before">
-								<svg xmlns="http://www.w3.org/2000/svg" width="23" height="23" viewBox="0 0 23 23">
-									<path id="Dark_Theme" data-name="Dark Theme" fill="#000" d="M1759.46,111.076a0.819,0.819,0,0,0-.68.147,8.553,8.553,0,0,1-2.62,1.537,8.167,8.167,0,0,1-2.96.531,8.655,8.655,0,0,1-8.65-8.682,9.247,9.247,0,0,1,.47-2.864,8.038,8.038,0,0,1,1.42-2.54,0.764,0.764,0,0,0-.12-1.063,0.813,0.813,0,0,0-.68-0.148,11.856,11.856,0,0,0-6.23,4.193,11.724,11.724,0,0,0,1,15.387,11.63,11.63,0,0,0,19.55-5.553A0.707,0.707,0,0,0,1759.46,111.076Zm-4.5,6.172a10.137,10.137,0,0,1-14.29-14.145,10.245,10.245,0,0,1,3.38-2.836c-0.14.327-.29,0.651-0.41,1.006a9.908,9.908,0,0,0-.56,3.365,10.162,10.162,0,0,0,10.15,10.189,9.776,9.776,0,0,0,3.49-.62,11.659,11.659,0,0,0,1.12-.473A10.858,10.858,0,0,1,1754.96,117.248Z" transform="translate(-1737 -98)" />
-								</svg>
-							</span>
-							<span class="sw-after">
-								<svg xmlns="http://www.w3.org/2000/svg" width="22.22" height="22.313" viewBox="0 0 22.22 22.313">
-									<path id="Light_Theme" data-name="Light Theme" fill="#fff" d="M1752.49,105.511a5.589,5.589,0,0,0-3.94-1.655,5.466,5.466,0,0,0-3.94,1.655,5.61,5.61,0,0,0,3.94,9.566,5.473,5.473,0,0,0,3.94-1.653,5.643,5.643,0,0,0,1.65-3.957A5.516,5.516,0,0,0,1752.49,105.511Zm-1.06,6.85a4.1,4.1,0,0,1-5.76,0,4.164,4.164,0,0,1,0-5.788A4.083,4.083,0,0,1,1751.43,112.361Zm7.47-3.662h-2.27a0.768,0.768,0,0,0,0,1.536h2.27A0.768,0.768,0,0,0,1758.9,108.7Zm-10.35,8.12a0.777,0.777,0,0,0-.76.769v2.274a0.777,0.777,0,0,0,.76.767,0.786,0.786,0,0,0,.77-0.767v-2.274A0.786,0.786,0,0,0,1748.55,116.819Zm7.85-.531-1.62-1.624a0.745,0.745,0,0,0-1.06,0,0.758,0.758,0,0,0,0,1.063l1.62,1.625a0.747,0.747,0,0,0,1.06,0A0.759,0.759,0,0,0,1756.4,116.288ZM1748.55,98.3a0.777,0.777,0,0,0-.76.768v2.273a0.778,0.778,0,0,0,.76.768,0.787,0.787,0,0,0,.77-0.768V99.073A0.786,0.786,0,0,0,1748.55,98.3Zm7.88,3.278a0.744,0.744,0,0,0-1.06,0l-1.62,1.624a0.758,0.758,0,0,0,0,1.063,0.745,0.745,0,0,0,1.06,0l1.62-1.624A0.758,0.758,0,0,0,1756.43,101.583Zm-15.96,7.116h-2.26a0.78,0.78,0,0,0-.77.768,0.76,0.76,0,0,0,.77.768h2.26A0.768,0.768,0,0,0,1740.47,108.7Zm2.88,5.965a0.745,0.745,0,0,0-1.06,0l-1.62,1.624a0.759,0.759,0,0,0,0,1.064,0.747,0.747,0,0,0,1.06,0l1.62-1.625A0.758,0.758,0,0,0,1743.35,114.664Zm0-11.457-1.62-1.624a0.744,0.744,0,0,0-1.06,0,0.758,0.758,0,0,0,0,1.063l1.62,1.624a0.745,0.745,0,0,0,1.06,0A0.758,0.758,0,0,0,1743.35,103.207Z" transform="translate(-1737.44 -98.313)" />
-								</svg>
-							</span>
-						</a>
-
-						<!-- menu btn -->
-						<a href="#" class="menu-btn">
-							<span></span>
-							<span></span>
-						</a>
-
-						<!-- Menu Full Overlay -->
-						<div class="menu-full-overlay">
-							<div class="menu-full-container">
-								<div class="container">
-									<div class="row">
-										<div class="col-xs-12 col-sm-12 col-md-12 col-lg-12">
-
-											<!-- menu full -->
-											<div class="menu-full">
-												<ul class="menu-full">
-													<li class="menu-item">
-														<a class="splitting-text-anim-2" data-splitting="chars" href="index.html">首页</a>
-													</li>
-													<li class="menu-item">
-														<a class="splitting-text-anim-2" data-splitting="chars" href="#services-section">工作经历</a>
-													</li>
-													<li class="menu-item">
-														<a class="splitting-text-anim-2" data-splitting="chars" href="#skills-section">技能</a>
-													</li>
-													<li class="menu-item">
-														<a class="splitting-text-anim-2" data-splitting="chars" href="#blog-section">Blog</a>
-													</li>
-													<li class="menu-item">
-														<a class="splitting-text-anim-2" data-splitting="chars" href="#resume-section">经历</a>
-													</li>
-													
-												</ul>
-											</div>
-
-											<!-- social -->
-											<div class="menu-social-links">
-												 <a href="javascript:void(0);" onclick="showWeChatQR();" style="display: inline-block;">
-                  <i class="fab fa-weixin" style="font-size: 24px; color: #09bb07; vertical-align: middle;"></i>
-                </a>
-                <script>
-                function showWeChatQR() {
-                  var mask = document.createElement('div');
-                  mask.style.position = 'fixed';
-                  mask.style.left = 0;
-                  mask.style.top = 0;
-                  mask.style.width = '100vw';
-                  mask.style.height = '100vh';
-                  mask.style.background = 'rgba(0,0,0,0.6)';
-                  mask.style.zIndex = 9999;
-                  mask.onclick = function() { document.body.removeChild(mask); };
-
-                  // 创建图片
-                  var img = document.createElement('img');
-                  img.src = 'assets/images/wechat.jpg';
-                  img.style.position = 'absolute';
-                  img.style.top = '50%';
-                  img.style.left = '50%';
-                  img.style.transform = 'translate(-50%, -50%)';
-                  img.style.maxWidth = '80vw';
-                  img.style.maxHeight = '80vh';
-                  img.style.boxShadow = '0 4px 32px rgba(0,0,0,0.3)';
-                  img.style.borderRadius = '8px';
-                  mask.appendChild(img);
-
-                  document.body.appendChild(mask);
-                }
-                </script>
-											</div>
-
-											<div class="v-line-block"><span></span></div>
-
-										</div>
-									</div>
-								</div>
-							</div>
-							<div class="menu-overlay"></div>
-						</div>
-
-          </div>
+<body>
+        <!-- 竖屏提示遮罩层 -->
+    <div id="orientation-warning">
+        <div class="warning-content">
+            <p>请旋转手机至<br><strong>横屏模式</strong></p>
+            <span class="icon">↻</span>
         </div>
-      </div>
-    </header>
+    </div>
 
-		<!-- Wrapper -->
-		<div class="wrapper">
+        <!-- 萤火虫特效层 -->
 
-      <!-- Section - Hero Started -->
-			<section class="lui-section lui-section-hero lui-gradient-top" id="started-section">
-  			<div class="container">
+    <canvas id="firefly-canvas"></canvas>
 
-          <!-- Hero Started -->
-          <div class="lui-started v-line v-line-left">
-    				<div class="section hero-started">
-    					<div class="content scrolla-element-anim-1 scroll-animate" data-animate="active">
-    						<div class="titles">
-    							<div class="lui-subtitle">
-    								<span> Hello, <b>my name is</b>
-    								</span>
-    							</div>
-    							<h1 class="title splitting-text-anim-1 scroll-animate" data-splitting="chars" data-animate="active">
-    								<span>
-    									<b>Finn</b> 周伟俊 </span>
-    							</h1>
-    							<div class="label lui-subtitle"> I am working in <strong> Business Intelligence</strong>
-    							</div>
-    						</div>
-    						<div class="description">
-    							<div>
-   								  <h6><em>目前在淘宝短视频业务提供BI服务，来自浙江温州，喜欢干净的数据，清晰架构的需求，健身和听歌。</em></h6>
-   								  <h6><em>&nbsp;</em></h6>
-                                </div>
-    							<div class="social-links">
-    								
-    								<a href="javascript:void(0);" onclick="showWeChatQR();" style="display: inline-block;">
-                  <i class="fab fa-weixin" style="font-size: 24px; color: #09bb07; vertical-align: middle;"></i>
-                </a>
-                <script>
-                function showWeChatQR() {
-                  var mask = document.createElement('div');
-                  mask.style.position = 'fixed';
-                  mask.style.left = 0;
-                  mask.style.top = 0;
-                  mask.style.width = '100vw';
-                  mask.style.height = '100vh';
-                  mask.style.background = 'rgba(0,0,0,0.6)';
-                  mask.style.zIndex = 9999;
-                  mask.onclick = function() { document.body.removeChild(mask); };
+    <!-- 滚动轨道 -->
+    <div id="scroll-runtime-container">
+        <!-- WebGL 渲染画布将被插入到这里 -->
+        <div id="canvas-container"></div>
+    </div>
 
-                  // 创建图片
-                  var img = document.createElement('img');
-                  img.src = 'assets/images/wechat.jpg';
-                  img.style.position = 'absolute';
-                  img.style.top = '50%';
-                  img.style.left = '50%';
-                  img.style.transform = 'translate(-50%, -50%)';
-                  img.style.maxWidth = '80vw';
-                  img.style.maxHeight = '80vh';
-                  img.style.boxShadow = '0 4px 32px rgba(0,0,0,0.3)';
-                  img.style.borderRadius = '8px';
-                  mask.appendChild(img);
+    <!-- 
+      Import Map: 告诉浏览器当代码中写 import ... from 'three' 时，
+      去哪个 URL 下载 Three.js 库。
+    -->
+    <script type="importmap">
+        { 
+            "imports": { 
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js" 
+            } 
+        }
+    </script>
 
-                  document.body.appendChild(mask);
-                }
-                </script>
-    							</div>
-    						</div>
-    						<div class="bts">
-                    <a href="assets/images/周伟俊.pdf" class="btn" target="_blank">
-                    <span>Download CV</span>
-                    </a>
-    							<a href="#skills-section" class="btn-lnk"> My Skills </a>
-    						</div>
-    					</div>
-    					<div class="slide scrolla-element-anim-1 scroll-animate" data-animate="active">
-    						<img src="assets/images/profile2.png" alt="&lt;b&gt;Zoé&lt;/b&gt; Miller" width="180" height="237" decoding="async" >
-    						<span class="circle circle-1"></span>
-    						<span class="circle img-1" style="background-image: url(assets/images/pat-1.png);"></span>
-    						<span class="circle img-2" style="background-image: url(assets/images/pat-2.png);"></span>
-    						<span class="circle img-3" style="background-image: url(assets/images/pat-2.png);"></span>
-    						<div class="info-list">
-    							<ul>
-    								<li>
-    									<span class="num">4 <strong>+</strong>
-    									</span>
-    									<span class="value">Years of <strong>Experience</strong>
-    									</span>
-    								</li>
-    								<li>
-    									<span class="num">6</span>
-    									<span class="value">Completed <strong>Projects</strong>
-    									</span>
-    								</li>
-    							</ul>
-    						</div>
-    					</div>
-    				</div>
-            <div class="lui-bgtitle">
-              <span> MLOPS PMO </span>
-            </div> 
-          </div>
+    <!-- 主逻辑脚本：type="module" 允许使用 ES6 的 import 语法 -->
+    <script type="module">
+        // 从上面定义的 URL 导入 Three.js 核心库
+        import * as THREE from 'three';
+                // --- 萤火虫光标逻辑 ---
+        
+        const ffCanvas = document.getElementById('firefly-canvas');
+        const ffCtx = ffCanvas.getContext('2d');
+        let ffWidth, ffHeight;
+        
+        // 萤火虫粒子数组
+        const fireflies = [];
+        const FIREFLY_COUNT = 5; // 拖尾粒子的数量
+        
+        // 鼠标当前位置
+        const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        
+        // 监听鼠标移动更新目标位置
+        window.addEventListener('mousemove', (e) => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
 
-        </div>
-			</section>
+        // 调整 Canvas 尺寸
+        function resizeFirefly() {
+            ffWidth = ffCanvas.width = window.innerWidth;
+            ffHeight = ffCanvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeFirefly);
+        resizeFirefly();
 
-      <!-- Section - Services -->
-			<section class="lui-section lui-gradient-bottom" id="services-section">
+        // 萤火虫类
+        class FireflyParticle {
+            constructor(index) {
+                this.index = index;
+                this.x = mouse.x;
+                this.y = mouse.y;
+                this.size = Math.random() * 3 + 1; // 随机大小
+                // 每个粒子有不同的滞后系数，形成拖尾
+                this.ease = 0.1 + (index * 0.02); 
+                this.angle = Math.random() * Math.PI * 2; // 随机初始角度
+            }
 
-        <!-- Heading -->
-        <div class="lui-heading">
-          <div class="container">
-
-  					<div class="m-titles align-center">
-  						<h2 class="m-title splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-  							<span> 工作经历 </span>
-  						</h2>
-  						<div class="m-subtitle splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-  							<span> my <b>Work experience</b> </span>
-  						</div>
-  					</div>
-
-          </div>
-				</div>
-
-        <!-- Services -->
-				<div class="v-line v-line-right">
-          <div class="container">
-
-  					<div class="swiper-container js-services scrolla-element-anim-1 scroll-animate" data-animate="active">
-  						<div class="swiper-wrapper">
-							
-							<div class="swiper-slide">
-  								<div class="services-item">
-  									<div class="lui-subtitle">
-  										<span> Policy management </span>
-  									</div>
-  									<div class="icon"></div>
-  									<h5 class="lui-title">
-								    <em> 政策运营&nbsp;&nbsp; </em> </h5>
-  									<div class="lui-text">
-									  <div><strong><em> 
-									   1.负责新引入达人生态运营与质量控制，月均引入达人400+，优质通过率为同级别账号的30倍。
-2.半年制作20+业务数据报告，覆盖站内外达人表现及ROI分析，为业务决策提供数据支撑。
-3.月均管理千万级别预算，推动预算分配优化，项目资金利用率由40%提升至90%。
-4.设计达人标签校验逻辑，提升审核效率与系统一致性，为产品落地进行校验。</em></strong></div>
-                                    </div><a href="#skills-section" class="lnk"> 2025.3 - 至今&nbsp; </a>
-<div ></div>
-  								</div>
-  							</div>
-							<div class="swiper-slide">
-  								<div class="services-item">
-  									<div class="lui-subtitle">
-  										<span> Live operations </span>
-  									</div>
-  									<div class="icon"></div>
-  									<h5 class="lui-title">
-								    <em> 直播策划运营&nbsp;&nbsp; </em> </h5>
-  									<div class="lui-text">
-									  <div><strong><em> 
-									   1.活动策划与运营
-对直播活动进行设计需求跟进，设计素材微调，主播招募，排期，系统配置。淘宝直播立项，投流与活动项目跟进。
-2.大型活动数据产出，跟进制作各类活动的流量现金营收数据，对账数据，数据驱动主管决策。转播活动流量roi增长至18，日常人均由500-3000pv涨至活动期间人均100000pv，活动期间流水较日常增长18%。</em></strong></div>
-                                    </div><a href="#skills-section" class="lnk"> 2023.9 - 2025.2&nbsp; </a>
-<div ></div>
-  								</div>
-  							</div>
-  							<div class="swiper-slide">
-  								<div class="services-item">
-  									<div class="lui-subtitle">
-  										<span> Supply Chain Assistant </span>
-  									</div>
-  									<div class="icon"></div>
-  									<h5 class="lui-title">
-								    <em> 供应链&nbsp;&nbsp; </em> </h5>
-  									<div class="lui-text">
-									  <div><strong><em> 
-									   1.商家仓业务入驻到上线的项目推进，商家入驻上线前的实单测试验收与部分技术支持
-2.根据数据监控风险订单、挖掘风险路径并对接产技优化漏洞，降低资损风险
-3.协助体验团队解决异常订单，提供供应商部分技术支持与考核数据
-4.商家仓业务供应商仓监控与维护，日常维表维护，预计到货时效解决数据来源并提供临时解决方案与后续运维</em></strong></div>
-                                    </div><a href="#skills-section" class="lnk"> 2022.3 - 2023.8&nbsp; </a>
-<div ></div>
-  								</div>
-  							</div>
-  							<div class="swiper-slide">
-  								<div class="services-item">
-  									<div class="lui-subtitle">
-  										<span> Merchandise operations </span>
-  									</div>
-  									<div class="icon"></div>
-  									<h5 class="lui-title">
-							         <em> 商品运营 </em></h5>
-  									<div class="lui-text">
-  										<div>
-										  <p><em><strong>1．定期分析商品数据，并根据数据排查商品问题点.
-                                      2．新入职商品优化管理培训.
-                                      3．商品编辑优化标准撰写.
-                                      4．商品编辑优化上架分工与标准培训.
-                                      5．对接供应链处理各项商品端问题.
-                                      6．商品类目分类细则沟通多方面并判定输出结果.
-                                      7．负责官网导航栏配置，前台展示页面搭建.
-										  &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </strong></em></p>
-                                        </div>
-  									</div>
-									<a href="#skills-section" class="lnk"> 2021.9 - 2022.3 </a>
-<div class="image" style="background-image: url(assets/images/pat-2.png);"></div>
-  								</div>
-  							</div>
-  							<div class="swiper-slide">
-  								<div class="services-item">
-  									<div class="lui-subtitle">
-  										<span> AMAZON FULFILLMENT </span>
-  									</div>
-  									<div class="icon"></div>
-  									<h5 class="lui-title">
-								    <em> 亚马逊运营 </em> </h5>
-  									<div class="lui-text">
-									  <div><em><strong> 1．负责美国站文案编辑，优化A＋，主图，旗舰店。
-  										  2．负责FBA补货数据分析与计算，产出全店商品fcst预测数据。
-  										  3．shopify网站设计，优化。
-  										  4．Facebook公共主页账户日常消息回复与帖子发布。
-									  5．日常打单发货，选择物流平台，清报关资料制作。&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </strong></em></div>
-                                    </div><a href="#skills-section" class="lnk"> 2021.5 - 2021.9 </a>
-<div class="image" style="background-image: url(assets/images/pat-2.png);"></div>
-  								</div>
-  							</div>
-  						
-  						</div>
-  						<div class="swiper-pagination"></div>
-  					</div>
-
-						<div class="lui-bgtitle">
-							<span> History </span>
-						</div>
-
-					</div>
-				</div>
-
-      </section>
-	
-
-      <!-- Section - Skills -->
-			<section class="lui-section lui-gradient-center" id="skills-section">
-
-        <!-- Heading -->
-        <div class="lui-heading">
-          <div class="container">
-
-            <div class="m-titles align-center">
-              <h2 class="m-title splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-                <span> 专业技能 </span>
-              </h2>
-              <div class="m-subtitle splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-                <span> my <b>Talent</b> </span>
-              </div>
-            </div>
-
-          </div>
-				</div>
-
-        <!-- Skills -->
-				<div class="v-line v-line-left">
-          <div class="container">
-
-            <div class="row">
-              <div class="col-xs-12 col-sm-6 col-md-4 col-lg-4">
-
-                <div class="skills-items">
-                  <div class="skills-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name">
-                      <span> hiveSQL-odps&nbsp; </span>
-                    </h6>
-                    <div class="text">
-                      <div>
-                        <p>熟练使用odps-SQL进行增删查改，能够通过SQL对数据进行预处理，能够用SQL对数据进行一定的处理。会使用KETTLE 创建ETL抽取任务。</p>
-                      </div>
-                    </div>
-                    <div class="dots">
-                      <div class="dot" style="width: 90%;">
-                        <span></span>
-                      </div>
-                    </div>
-                    <div class="value">
-                      <span class="num">90&nbsp; <span>%</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="skills-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name">
-                      <span> Tableau/FBI </span>
-                    </h6>
-                    <div class="text">
-                      <div>
-                        <p>会使用Tableau/fbi创建数据报表，站点，根据业务情况为业务提供便捷的数据查询报表。掌握ab测试等互联网行业常用数据处理能力。</p>
-                      </div>
-                    </div>
-                    <div class="dots">
-                      <div class="dot" style="width: 75%;">
-                        <span></span>
-                      </div>
-                    </div>
-                    <div class="value">
-                      <span class="num">70 <span>%</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-              <div class="col-xs-12 col-sm-6 col-md-4 col-lg-4">
-
-                <div class="skills-items">
-                  <div class="skills-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name">
-                      <span> Photoshop </span>
-                    </h6>
-                    <div class="text">
-                      <div>
-                        <p>会使用Photoshop进行图片处理，图片编辑，融图等操作。&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </p>
-                      </div>
-                    </div>
-                    <div class="dots">
-                      <div class="dot" style="width: 75%;">
-                        <span></span>
-                      </div>
-                    </div>
-                    <div class="value">
-                      <span class="num">75 <span>%</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="skills-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name">
-                      <span> Python&nbsp; </span>
-                    </h6>
-                    <div class="text">
-                      <div>
-                        <p>目前能够通过python实现selenium爬虫，自动化，MYSQL数据处理，scikitlearn分析作图。ML模型的部署与相关训练，调参等知识。&nbsp;</p>
-                      </div>
-                    </div>
-                    <div class="dots">
-                      <div class="dot" style="width: 55%;">
-                        <span></span>
-                      </div>
-                    </div>
-                    <div class="value">
-                      <span class="num">50&nbsp; <span>%</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-              <div class="col-xs-12 col-sm-6 col-md-4 col-lg-4">
-
-                <div class="skills-items">
-                  <div class="skills-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name">
-                      <span> Excel&nbsp; </span>
-                    </h6>
-                    <div class="text">
-                      <div>
-                        <p>熟练使用EXCEL，能够根据EXCEL进行数据分析与处理。精通函数，EXCEL透视表，powerquary数据模型的搭建。</p>
-                      </div>
-                    </div>
-                    <div class="dots">
-                      <div class="dot" style="width: 90%;">
-                        <span></span>
-                      </div>
-                    </div>
-                    <div class="value">
-                      <span class="num">90 <span>%</span>
-                      </span>
-                    </div>
-                  </div>
-                  <div class="skills-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name">
-                      <span> MORE </span>
-                    </h6>
-                    <div class="text">
-                      <div>
-                        <p>更多技能加载中，MLops、tensorflow、docker、keras等&nbsp; 。。。。</p>
-                        <p>未完待续&nbsp;</p>
-                      </div>
-                    </div>
-                    <div class="dots">
-                      <div class="dot" style="width: 6%;">
-                        <span></span>
-                      </div>
-                    </div>
-                    <div class="value">
-                      <span class="num"> <span>0%</span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            <div class="lui-bgtitle">
-              <span> Skills </span>
-            </div>
-
-					</div>
-				</div>
-
-      </section>
-
-        <!-- Section - Blog -->
-		<section class="lui-section lui-gradient-top" id="blog-section">
-
-        <!-- Heading -->
-        <div class="lui-heading">
-          <div class="container">
-
-            <div class="m-titles align-center">
-              <h2 class="m-title splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-                <span> Blog </span>
-              </h2>
-              <div class="m-subtitle splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-                <span> my <b>Model and Articles</b>
-                </span>
-              </div>
-            </div>
-
-          </div>
-				</div>
-
-        <!-- Archive -->
-				<div class="v-line v-line-right">
-          <div class="container">
-
-            <div class="blog-items row">
-				
-			  <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-                <div class="archive-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                  <div class="image">
-                    <a href="https://alidocs.dingtalk.com/i/nodes/EpGBa2Lm8aZxe5myCv4XQl42WgN7R35y?corpId=dingd8e1123006514592&utm_medium=im_card&iframeQuery=utm_medium%3Dim_card%26utm_source%3Dim&utm_scene=team_space&utm_source=im">
-                      <img decoding="async" src="assets/images/taobaoshipin.png" alt="The Main Thing For The Designer">
-                    </a>
-                  </div>
-                  <div class="desc">
-                    <div class="category lui-subtitle">
-                      <span>May , 2025</span>
-                    </div>
-                    <h5 class="lui-title">
-                      <a href="https://alidocs.dingtalk.com/i/nodes/EpGBa2Lm8aZxe5myCv4XQl42WgN7R35y?corpId=dingd8e1123006514592&utm_medium=im_card&iframeQuery=utm_medium%3Dim_card%26utm_source%3Dim&utm_scene=team_space&utm_source=im">淘宝视频请你玩</a>
-                    </h5>
-                    <div class="lui-text">
-                      <p>淘宝视频请你玩项目，将淘系站外的达人引入淘宝发布视频。本人主要负责项目的数据分析，临时的bi服务搭建，内部预算申请，业务流程风险控制等内容&#8230;  <br> <br> </p>
-                      <div class="readmore">
-                        <a href="https://alidocs.dingtalk.com/i/nodes/EpGBa2Lm8aZxe5myCv4XQl42WgN7R35y?corpId=dingd8e1123006514592&utm_medium=im_card&iframeQuery=utm_medium%3Dim_card%26utm_source%3Dim&utm_scene=team_space&utm_source=im" class="lnk">Read more</a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-				
-              <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-                <div class="archive-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                  <div class="image">
-                    <a href="blog-single.html">
-                      <img decoding="async" src="assets/images/single7.jpg" alt="The Main Thing For The Designer">
-                    </a>
-                  </div>
-                  <div class="desc">
-                    <div class="category lui-subtitle">
-                      <span>July , 2023</span>
-                    </div>
-                    <h5 class="lui-title">
-                      <a href="blog-single.html">MICCAI 2023 Challenges ：2D 全景图像的牙齿分割任务</a>
-                    </h5>
-                    <div class="lui-text">
-                      <p>机缘巧合下参加了第一个AI类的比赛，想着从这个比赛入门来一窥人工智能的大门，参加了比赛与很多行业的同学交流，学到了很多。blog里分享一下unet模型与学习思路。&#8230; </p>
-                      <div class="readmore">
-                        <a href="blog-single.html" class="lnk">Read more</a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-	
-              <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-                <div class="archive-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                  <div class="image">
-                    <a href="动物塑在线测试 - 发现你的隐藏人格！.html">
-                      <img decoding="async" src="assets/images/blog-4-scaled-1.jpg" alt="商品运营岗位网页交付总结">
-                    </a>
-                  </div>
-                  <div class="desc">
-                    <div class="category lui-subtitle">
-                      <span>MAR , 2022</span>
-                    </div>
-                    <h5 class="lui-title">
-                      <a href="https://www.instagram.com/allylikesofficial/">商品运营岗位最终交付图片
-                      </a>
-                    </h5>
-                    <div class="lui-text">
-                      <p>
-                        本网页展示了商品运营岗位的部分生产结果，展示商品运营图片优化在支持业务增长中的重要作用。<br>
-                        <em>（该网页仅有部分设计生产的ins图片，目前该项目已关停）</em>
-                      </p>
-                      <div class="readmore">
-                        <a href="https://www.instagram.com/allylikesofficial/" class="lnk">Read more</a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-              <!--
-              <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-                <div class="archive-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                  <div class="image">
-                    <a href="动物塑在线测试 - 发现你的隐藏人格！.html">
-                      <img decoding="async" src="assets/images/blog-2.jpg" alt="Usability Secrets to Create Better Interfaces" >
-                    </a>
-                  </div>
-                  <div class="desc">
-                    <div class="category lui-subtitle">
-                      <span>动物塑临时</span>
-                    </div>
-                    <h5 class="lui-title">
-                      <a href="动物塑在线测试 - 发现你的隐藏人格！.html">动物塑临时</a>
-                    </h5>
-                    <div class="lui-text">
-                      <p>动物塑临时&#8230; </p>
-                      <div class="readmore">
-                        <a href="动物塑在线测试 - 发现你的隐藏人格！.html" class="lnk">Read more</a>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
--->
-            </div>
-
-
-            <div class="lui-bgtitle">
-              <span> Blog </span>
-            </div>
-
-					</div>
-				</div>
-
-      </section>
-
-
-      <!-- Section - Resume -->
-			<section class="lui-section lui-gradient-bottom" id="resume-section">
-
-        <!-- Heading -->
-        <div class="lui-heading">
-          <div class="container">
-
-            <div class="m-titles align-center">
-              <h2 class="m-title splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-                <span> 经历 </span>
-              </h2>
-              <div class="m-subtitle splitting-text-anim-1 scroll-animate" data-splitting="words" data-animate="active">
-                <span> my <b>Story</b>
-                </span>
-              </div>
-            </div>
-
-          </div>
-				</div>
-
-        <!-- History -->
-				<div class="v-line v-line-left">
-          <div class="container">
-
-            <div class="row">
-              <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-
-                <h5 class="history-title scrolla-element-anim-1 scroll-animate" data-animate="active">
-                  <span> Education </span>
-                </h5>
-                <div class="history-items">
-                  <div class="history-item lui-collapse-item opened scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 href="https://www.bing.com/search?EID=MBSC&form=BGGCDF&pc=BG02&q=%E6%B5%99%E6%B1%9F%E9%87%91%E8%9E%8D%E8%81%8C%E4%B8%9A%E5%AD%A6%E9%99%A2" class="name lui-collapse-btn active">Zhejiang Finance College
-                      <span>  </span>
-                    </h6>
-                    <div class="history-content">
-                      <div class="subname">
-                        <span> International Trade </span>
-                      </div>
-                      <div class="date lui-subtitle">
-                        <span> 2018 - 2021&nbsp; </span>
-                      </div>
-                      <div class="text">
-                        <div>
-                          <p>2021年毕业于 浙江金融职业学院（大专）国际贸易专业。大学期间主要学习国际贸易，电子商务，国际商法等商业知识。在浙江理工大学学习过应用心理学。</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="history-item lui-collapse-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name lui-collapse-btn">
-                      <span> Coursera </span>
-                    </h6>
-                    <div class="history-content">
-                      <div class="subname">
-                        <span> Google Data Analytics </span>
-                      </div>
-                      <div class="date lui-subtitle">
-                        <span> 2022.6 </span>
-                      </div>
-                      <div class="text">
-                        <div>
-                          <p>2022年在coursera线上大学学习了谷歌的数据分析并获取到证书</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-              <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-
-                <h5 class="history-title scrolla-element-anim-1 scroll-animate" data-animate="active">
-                  <span> Experience </span>
-                </h5>
-                <div class="history-items">
-                  <div class="history-item lui-collapse-item opened scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name lui-collapse-btn active">
-                      <span> UI Head &amp; Manager </span>
-                    </h6>
-                    <div class="history-content">
-                      <div class="subname">
-                        <span> TABLEAU </span>
-                      </div>
-                      <div class="date lui-subtitle">
-                        <span> 2022.5 - <b>2022.7</b>
-                        </span>
-                      </div>
-                      <div class="text">
-                        <div>
-                          <p>制作智能中职专，单考单招录取线看板与志愿指导，提供用户服务。可通过提交成绩获取浙江2018-2022年适合的大学与历史分数线。</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div class="history-item lui-collapse-item scrolla-element-anim-1 scroll-animate" data-animate="active">
-                    <h6 class="name lui-collapse-btn">
-                      <span> MICCAI 2023 Challenges </span>
-                    </h6>
-                    <div class="history-content">
-                      <div class="subname">
-                        <span> STS-基于2D 全景图像的牙齿分割任务 </span>
-                      </div>
-                      <div class="date lui-subtitle">
-                        <span> 2023.7 </span>
-                      </div>
-                      <div class="text">
-                        <div>
-                          <p>实践模型训练与部署，优化CV模型最终score</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-            <div class="lui-bgtitle">
-              <span> History </span>
-            </div>
-
-					</div>
-				</div>
-
-      </section>
-
-      
-
-		      
-   
-      
-
-		<!-- Footer -->
-		<div class="footer">
-			<div class="footer__builder">
-        <div class="container">
-          <div class="row">
-            <div class="col-xs-12 col-sm-12 col-md-4 col-lg-4">
-
-              <div class="social-links scrolla-element-anim-1 scroll-animate d-flex" data-animate="active" style="gap: 16px;">
+            update() {
+                // 1. 跟随逻辑：线性插值 (Lerp) 向鼠标位置移动
+                // index 越大，ease 越大，跟得越紧？不，我们要反过来，index小的跟得紧
+                // 这里我们让后面的粒子稍微有点随机扰动，看起来更像生物群
+                const targetX = mouse.x;
+                const targetY = mouse.y;
                 
-                <a href="javascript:void(0);" onclick="showWeChatQR();" style="display: inline-block;">
-                  <i class="fab fa-weixin" style="font-size: 24px; color: #09bb07; vertical-align: middle;"></i>
-                </a>
-                <script>
-                function showWeChatQR() {
-                  var mask = document.createElement('div');
-                  mask.style.position = 'fixed';
-                  mask.style.left = 0;
-                  mask.style.top = 0;
-                  mask.style.width = '100vw';
-                  mask.style.height = '100vh';
-                  mask.style.background = 'rgba(0,0,0,0.6)';
-                  mask.style.zIndex = 9999;
-                  mask.onclick = function() { document.body.removeChild(mask); };
+                // 计算距离
+                const dx = targetX - this.x;
+                const dy = targetY - this.y;
+                
+                // 简单的缓动跟随
+                this.x += dx * this.ease;
+                this.y += dy * this.ease;
 
-                  // 创建图片
-                  var img = document.createElement('img');
-                  img.src = 'assets/images/wechat.jpg';
-                  img.style.position = 'absolute';
-                  img.style.top = '50%';
-                  img.style.left = '50%';
-                  img.style.transform = 'translate(-50%, -50%)';
-                  img.style.maxWidth = '80vw';
-                  img.style.maxHeight = '80vh';
-                  img.style.boxShadow = '0 4px 32px rgba(0,0,0,0.3)';
-                  img.style.borderRadius = '8px';
-                  mask.appendChild(img);
+                // 2. 增加一点自然的“抖动”或“环绕”，模拟昆虫飞行
+                this.angle += 0.1;
+                this.x += Math.sin(this.angle) * 0.5;
+                this.y += Math.cos(this.angle) * 0.5;
+            }
 
-                  document.body.appendChild(mask);
+            draw(ctx) {
+                // 根据索引计算透明度：头部的亮，尾部的暗
+                const alpha = 1 - (this.index / FIREFLY_COUNT);
+                // 头部大，尾部小
+                const currentSize = this.size * (1 - (this.index / FIREFLY_COUNT) * 0.5);
+
+                ctx.beginPath();
+                // 径向渐变，制造发光感
+                const gradient = ctx.createRadialGradient(this.x, this.y, 0, this.x, this.y, currentSize * 4);
+                gradient.addColorStop(0, `rgba(255, 220, 100, ${alpha})`);   // 核心亮黄
+                gradient.addColorStop(0.4, `rgba(255, 180, 0, ${alpha * 0.5})`); // 中间橙色
+                gradient.addColorStop(1, `rgba(255, 100, 0, 0)`);          // 边缘透明
+
+                ctx.fillStyle = gradient;
+                ctx.arc(this.x, this.y, currentSize * 4, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 初始化粒子
+        for (let i = 0; i < FIREFLY_COUNT; i++) {
+            fireflies.push(new FireflyParticle(i));
+        }
+
+        // 独立的萤火虫动画循环
+        function animateFireflies() {
+            ffCtx.clearRect(0, 0, ffWidth, ffHeight);
+            
+            // 使用加法混合模式，让重叠部分更亮（发光效果）
+            ffCtx.globalCompositeOperation = 'lighter';
+
+            fireflies.forEach(p => {
+                p.update();
+                p.draw(ffCtx);
+            });
+
+            // 恢复默认混合模式（虽然这里不需要，但保持好习惯）
+            ffCtx.globalCompositeOperation = 'source-over';
+
+            requestAnimationFrame(animateFireflies);
+        }
+        
+        // 启动萤火虫动画
+        if (window.matchMedia("(hover: hover)").matches) {
+            animateFireflies();
+        }
+
+        // --- 1. 基础场景初始化 ---
+
+        // 获取 HTML 中的 canvas 容器 div
+        const container = document.getElementById('canvas-container');
+        
+        // 创建 Three.js 场景对象
+        const scene = new THREE.Scene();
+
+        // 定义雾的颜色 (黑色)
+        const fogColor = new THREE.Color(0x000000); 
+        
+        // 设置场景背景色为黑色
+        scene.background = fogColor;
+        
+        // 添加指数雾：颜色，起始距离(5)，结束距离(100)。
+        // 物体超过100将完全不可见，用于隐藏远处地形的边缘。
+        scene.fog = new THREE.Fog(fogColor, 10, 60);
+
+        // 创建透视相机：视角45度，宽高比，近裁剪面0.1，远裁剪面200
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 200);
+        
+        // 定义相机的基础位置参数
+        const baseCamX = 0, baseCamY = 4.5, baseCamZ = 12.0;
+        
+        // 设置相机初始位置 (x=0, y=4.5, z=12)
+        camera.position.set(0, baseCamY, baseCamZ);
+
+        // 创建 WebGL 渲染器
+        const renderer = new THREE.WebGLRenderer({ 
+            antialias: true, // 开启抗锯齿，让边缘更平滑
+            powerPreference: "high-performance" // 优先使用高性能 GPU
+        });
+        
+        // 设置渲染器尺寸为窗口大小
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        // 设置像素比：限制最大为2，防止在高分屏手机上性能过载
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        
+        // 色调映射：使用电影级色调映射，让高光和阴影过渡更自然
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        
+        // 曝光度：稍微调亮一点 (1.1)
+        renderer.toneMappingExposure = 1.1;
+        
+        // 将渲染器的 canvas 元素添加到 HTML 容器中
+        container.appendChild(renderer.domElement);
+
+               // --- 2. 地形/海面网格 (ShaderMaterial) ---
+
+        // 【优化1】降低几何体复杂度：从 256 降至 128。
+        // 手机端 GPU 处理顶点位移非常消耗资源。
+        // 为了不让画面变“平”，我们在 Shader 里提高了噪声频率。
+        const geometry = new THREE.PlaneGeometry(200, 240, 64, 64); 
+        
+        // 将平面旋转 -90度，使其平铺在 XZ 平面上（默认是 XY 平面）
+        geometry.rotateX(-Math.PI / 2);
+        // --- 核心修复：将 Shader 的地形算法翻译到 JS，生成真实的物理碰撞体积 ---
+        function fract(x) { return x - Math.floor(x); }
+        function hash(x, y) { return fract(Math.sin(x * 12.9898 + y * 78.233) * 43758.5453); }
+        function mix(a, b, t) { return a * (1.0 - t) + b * t; }
+        function noise(x, y) {
+            const ix = Math.floor(x), iy = Math.floor(y);
+            const fx = fract(x), fy = fract(y);
+            const ux = fx * fx * (3.0 - 2.0 * fx);
+            const uy = fy * fy * (3.0 - 2.0 * fy);
+            return mix(
+                mix(hash(ix, iy), hash(ix + 1.0, iy), ux),
+                mix(hash(ix, iy + 1.0), hash(ix + 1.0, iy + 1.0), ux), 
+                uy
+            );
+        }
+        function fbm(x, y) {
+            let f = 0.0, amp = 0.5;
+            for (let i = 0; i < 3; i++) {
+                f += amp * noise(x, y); x *= 2.0; y *= 2.0; amp *= 0.5;
+            }
+            return f;
+        }
+        function getCpuElevation(x, z) {
+            const sideZone = Math.max(0.0, Math.abs(x) - 14.0);
+            const mountains = Math.pow(sideZone * 0.12, 1.6) * 2.8;
+            const uvX = x * 0.1, uvY = z * 0.16;
+            const qX = fbm(uvX, uvY), qY = fbm(uvX + 5.2, uvY + 1.3);
+            const rX = fbm(uvX + qX * 2.0, uvY + qY * 2.0);
+            const rY = fbm(uvX + qX * 2.0, uvY + qY * 2.0);
+            const n = fbm(uvX + rX * 1.5, uvY + rY * 1.5);
+            return mountains + n * n * 3.5;
+        }
+
+        // 修改网格的真实顶点高度
+        const posAttr = geometry.attributes.position;
+        for (let i = 0; i < posAttr.count; i++) {
+            const x = posAttr.getX(i);
+            const z = posAttr.getZ(i);
+            posAttr.setY(i, getCpuElevation(x, z)); 
+        }
+        // 更新包围盒，确保射线检测范围生效
+        geometry.computeBoundingBox();
+        geometry.computeBoundingSphere();
+        // -----------------------------------------------------------
+
+        // 创建一个对象用于存储传递给 Shader 的统一变量 (Uniforms)
+        const seaUniforms = { uTime: { value: 0 } };
+
+        // 【优化2】提取公共 Shader 代码，避免 Vertex 和 Fragment 重复定义大段函数
+        // 这能减少 Shader 编译时间和内存占用
+        const commonShaderChunk = /* glsl */ `
+            float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+            float noise(vec2 p) {
+                vec2 i = floor(p); vec2 f = fract(p);
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
+                        mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+            }
+            float fbm(vec2 p) {
+                float f = 0.0; float amp = 0.5;
+                // 【优化3】移动端减少迭代次数：从 4 次减为 3 次
+                // 视觉差异极小，但计算量减少 25%
+                for(int i = 0; i < 3; i++) {
+                    f += amp * noise(p); p *= 2.0; amp *= 0.5;
                 }
-                </script>
-              </div>
+                return f;
+            }
 
-              <div class="copyright-text align-center scrolla-element-anim-1 scroll-animate" data-animate="active">
-                © 2025 <strong>FINN</strong> <a href="https://finnfuture.github.io/"></a>
-              </div>
+            // 【优化4】提高噪声频率 (0.05->0.1, 0.08->0.16)
+            // 因为网格变稀疏了，我们需要更密集的噪声纹理来填充细节
+            float getElevation(vec2 p, float t) {
+                float sideZone = max(0.0, abs(p.x) - 14.0);
+                float mountains = pow(sideZone * 0.12, 1.6) * 2.8;
+                
+                // 频率加倍，补偿几何体精度的损失
+                vec2 uv = p * vec2(0.1, 0.16); 
+                vec2 q = vec2(fbm(uv - t * 0.06), fbm(uv + vec2(5.2, 1.3)));
+                vec2 r = vec2(fbm(uv + q * 2.0 + t * 0.08), fbm(uv + q * 2.0 - t * 0.07));
+                float n = fbm(uv + r * 1.5);
+                
+                float wave = n * n * 3.5; 
+                return mountains + wave;
+            }
+        `;
 
-            </div>
-            <div class="col-xs-12 col-sm-12 col-md-4 col-lg-4">
+        // === 地形顶点着色器 (Vertex Shader) ===
+        const vertexShader = /* glsl */ `
+            uniform float uTime;
+            varying vec2 vUv;
+            varying vec3 vViewPosition;
+            varying vec3 vLocalPos;
 
-              <div class="copyright-text align-right scrolla-element-anim-1 scroll-animate" data-animate="active">
-                Developed by <strong>WEIJUNZHOU&nbsp;</strong>
-              </div>
+            ${commonShaderChunk}
 
-            </div>
-          </div>
-        </div>
-			</div>
-		</div>
+            void main() {
+                vUv = uv;
+                vec3 pos = position;
+                
+                // 使用优化后的 getElevation
+                // pos.y += getElevation(pos.xz, 0.0);
+                
+                vLocalPos = pos;
+                
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                vViewPosition = -mvPosition.xyz;
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
 
-	</div>
-	
-	<!-- cursor -->
-	<div class="cursor"></div>
+        // === 地形片元着色器 (Fragment Shader) ===
+        const fragmentShader = /* glsl */ `
+            uniform float uTime;
+            varying vec2 vUv;
+            varying vec3 vViewPosition;
+            varying vec3 vLocalPos;
 
-  <script src="assets/js/jquery.min.js"></script>
-  <script src="assets/js/jquery.validate.min.js"></script>
-  <script src="assets/js/bootstrap.js"></script>
-  <script src="assets/js/swiper.js"></script>
-  <script src="assets/js/splitting.js"></script>
-  <script src="assets/js/jarallax.min.js"></script>
-  <script src="assets/js/magnific-popup.js"></script>
-  <script src="assets/js/imagesloaded.pkgd.js"></script>
-  <script src="assets/js/isotope.pkgd.js"></script>
-  <script src="assets/js/jquery.scrolla.js"></script>
-  <script src="assets/js/skrollr.js"></script>
-  <script src="assets/js/jquery.cookie.js"></script>
-  <script src="assets/js/typed.js"></script>
-  <script src="assets/js/common.js"></script>
+            ${commonShaderChunk}
 
+            // 焦散效果函数：模拟水底的光纹
+            float getCaustics(vec2 p, float t) {
+                vec2 q = p * 0.12; 
+                float c = 0.0;
+                float w = 0.5;
+                // 【优化5】减少循环次数：3次 -> 2次
+                for (int i = 0; i < 2; i++) {
+                    q += vec2(sin(q.y * 1.5 + t), cos(q.x * 1.5 - t)) * 0.5;
+                    c += abs(sin(q.x) * cos(q.y)) * w;
+                    w *= 0.6;
+                    q *= 2.1; 
+                }
+                return pow(c, 3.5) * 3.0; 
+            }
+
+            void main() {
+                vec2 p = vLocalPos.xz;
+                float t = 0.0;
+
+                // 计算法线 (Normal) - 保持原有逻辑，但依赖的是新的 getElevation
+                float e = 0.05; 
+                float mountains = pow(max(0.0, abs(p.x) - 14.0) * 0.12, 1.6) * 2.8;
+                float h0 = getElevation(p, t);
+                float hx = getElevation(p + vec2(e, 0.0), t);
+                float hz = getElevation(p + vec2(0.0, e), t);
+                vec3 normal = normalize(vec3((h0 - hx) / e, 1.0, (h0 - hz) / e));
+
+                float pureWaveHeight = h0 - mountains;
+
+                vec3 valleyColor = vec3(0.08, 0.12, 0.02);
+                vec3 slopeColor  = vec3(0.01, 0.02, 0.005);
+                vec3 peakColor   = vec3(0.0, 0.0, 0.0);
+
+                float toSlope = smoothstep(0.0, 0.8, pureWaveHeight);
+                float toPeak  = smoothstep(0.8, 2.5, pureWaveHeight);
+                vec3 finalColor = mix(valleyColor, slopeColor, toSlope);
+                finalColor = mix(finalColor, peakColor, toPeak);
+
+                float ripples = getCaustics(p, uTime * 0.8);
+                vec3 causticColor = vec3(0.4, 0.8, 0.3);
+                finalColor += causticColor * ripples * (1.0 - toPeak) * 0.3 ;
+
+                vec3 viewDir = normalize(vViewPosition);
+                vec3 lightDir = normalize(vec3(0.5, 0.8, -0.5));
+                vec3 halfVector = normalize(lightDir + viewDir);
+                float NdotH = max(dot(normal, halfVector), 0.0);
+                float specular = pow(NdotH, 30.0);
+                
+                finalColor += vec3(0.2, 0.3, 0.05) * specular * (1.0 - toPeak) * 0.4;
+
+                float fresnel = pow(1.0 - max(dot(normal, viewDir), 0.0), 3.0);
+                finalColor += vec3(0.05, 0.08, 0.02) * fresnel;
+
+                float grain = (hash(gl_FragCoord.xy + uTime * 2.0) - 0.5) * 0.05;
+                finalColor += vec3(grain);
+
+                float sideMask = smoothstep(6.0, 40.0, abs(vLocalPos.x));
+                finalColor = mix(finalColor, peakColor, sideMask);
+
+                float dist = length(vViewPosition);
+                float fog = smoothstep(20.0, 100.0, dist);
+                finalColor = mix(finalColor, peakColor, fog);
+
+                gl_FragColor = vec4(finalColor, 1.0);
+            }
+        `;
+        
+        const seaMaterial = new THREE.ShaderMaterial({
+            vertexShader, 
+            fragmentShader, 
+            uniforms: seaUniforms, 
+            transparent: false
+        });
+        scene.add(new THREE.Mesh(geometry, seaMaterial));
+
+
+ // --- 3. 粒子系统 (Golden Spores) ---
+
+        const particleCount = 10000; // 粒子总数
+        const particleGeo = new THREE.BufferGeometry();
+        
+        // 创建位置数组：每个粒子有 x,y,z 三个坐标
+        const pPositions = new Float32Array(particleCount * 3);
+        
+        // 定义粒子分布的范围
+        const spreadX = 160; // X轴总宽度 (-80 到 80)
+        const spreadZ = 300; // Z轴总长度 (-150 到 150)，拉长以覆盖更多滚动区域
+
+        // 初始化粒子位置：均匀随机分布
+        for (let i = 0; i < particleCount * 3; i += 3) {
+            // Math.random() 生成 0-1，减去 0.5 变成 -0.5 到 0.5，再乘以总宽度
+            pPositions[i]     = (Math.random() - 0.5) * spreadX; 
+            pPositions[i + 1] = 0;                               
+            pPositions[i + 2] = (Math.random() - 0.5) * spreadZ; 
+        }
+        // 将位置数据绑定到几何体
+        particleGeo.setAttribute('position', new THREE.BufferAttribute(pPositions, 3));
+
+        // === 粒子顶点着色器 ===
+        const particleVertex = /* glsl */ `
+            uniform float uTime;
+            varying vec3 vViewPosition;
+            varying float vAlphaModifier; // 自定义变量：用于控制透明度
+
+            // 再次复制噪声函数 (为了计算地形高度)
+            float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+            float noise(vec2 p) {
+                vec2 i = floor(p); vec2 f = fract(p);
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(mix(hash(i + vec2(0.0,0.0)), hash(i + vec2(1.0,0.0)), u.x),
+                        mix(hash(i + vec2(0.0,1.0)), hash(i + vec2(1.0,1.0)), u.x), u.y);
+            }
+            float fbm(vec2 p) {
+                float f = 0.0; float amp = 0.5;
+                for(int i = 0; i < 4; i++) {
+                    f += amp * noise(p); p *= 2.0; amp *= 0.5;
+                }
+                return f;
+            }
+            float getElevation(vec2 p, float t) {
+                float sideZone = max(0.0, abs(p.x) - 14.0);
+                float mountains = pow(sideZone * 0.12, 1.6) * 2.8;
+                vec2 uv = p * vec2(0.05, 0.08); 
+                vec2 q = vec2(fbm(uv - t * 0.06), fbm(uv + vec2(5.2, 1.3)));
+                vec2 r = vec2(fbm(uv + q * 2.0 + t * 0.08), fbm(uv + q * 2.0 - t * 0.07));
+                float n = fbm(uv + r * 1.5);
+                float wave = n * n * 3.5; 
+                return mountains + wave;
+            }
+
+            void main() {
+                vec3 pos = position;
+                // 基于位置生成一个唯一的随机种子 (0.0 - 1.0)
+                float seed = hash(pos.zx);
+
+                // 1. 地形分析
+                float sideZone = max(0.0, abs(pos.x) - 14.0);
+                float mountains = pow(sideZone * 0.12, 1.6) * 2.8;
+                // 获取当前粒子 XZ 位置对应的地面高度
+                float surfaceHeight = getElevation(pos.xz, 0.0); 
+                float pureWaveHeight = surfaceHeight - mountains;
+
+                // 【核心逻辑 1】：谷底遮罩
+                // 如果 pureWaveHeight > 0.9 (即在山坡或山顶)，valleyMask 变为 0
+                // 这意味着粒子只会出现在低洼处
+                float valleyMask = 1.0 - smoothstep(0.0, 0.8, pureWaveHeight);
+
+                // 【核心逻辑 2】：生命周期
+                // 利用时间 uTime 和种子 seed，让每个粒子有不同的运动相位
+                float speed = 0.03 + seed * 0.02; 
+                // fract() 取小数部分，使 life 在 0.0 到 1.0 之间无限循环
+                float life = fract(uTime * speed + seed); 
+
+                // 【核心逻辑 3】：上升运动
+                // 粒子从地面 (life=0) 上升到 15.0 单位高度 (life=1)
+                float riseHeight = life * 15.0; 
+                
+                // 添加水平方向的漂移，模拟风吹效果
+                pos.x += sin(uTime * 0.3 + seed * 10.0) * life * 2.0;
+                pos.z += cos(uTime * 0.2 + seed * 10.0) * life * 2.0;
+                
+                // 最终高度 = 地面高度 + 上升高度
+                pos.y += surfaceHeight + riseHeight + 0.1;
+
+                // 坐标变换
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                vViewPosition = -mvPosition.xyz;
+                gl_Position = projectionMatrix * mvPosition;
+
+                // 设置粒子大小：近大远小
+                float baseSize = 2.0 + seed * 2.5;
+                gl_PointSize = baseSize * (50.0 / -mvPosition.z);
+                
+                // 【核心逻辑 4】：淡入淡出
+                // 正弦波：life=0时值为0，life=0.5时值为1，life=1时值为0
+                // 这样粒子会在升起过程中逐渐显现，然后消失
+                float lifeAlpha = sin(life * 3.14159265); 
+                
+                // 综合透明度 = 地形遮罩 * 生命周期透明度
+                vAlphaModifier = lifeAlpha; 
+            }
+        `;
+
+        // === 粒子片元着色器 ===
+                const particleFragment = /* glsl */ `
+            varying vec3 vViewPosition;
+            varying float vAlphaModifier; 
+            
+            void main() {
+                if (vAlphaModifier <= 0.01) discard; 
+
+                vec2 coord = gl_PointCoord - vec2(0.5);
+                float distFromCenter = length(coord); 
+                if (distFromCenter > 0.5) discard; 
+                
+                float baseAlpha = pow(1.0 - (distFromCenter * 2.0), 1.8);
+                
+                // 计算当前像素到相机的距离
+                float dist = length(vViewPosition);
+
+                // === 新增：近距离淡出逻辑 (Near Fade) ===
+                // 当距离小于 3.0 时开始变透明，小于 1.0 时完全消失
+                // 这防止了粒子穿过相机时突然放大或贴脸显示的突兀感
+                float nearFade = smoothstep(1.0, 3.0, dist);
+
+                // === 原有：远距离雾效逻辑 (Far Fog) ===
+                // 距离大于 5.0 开始变淡，70.0 完全消失
+                float farFog = smoothstep(5.0, 70.0, dist);
+                
+                // 如果太远，直接丢弃
+                if (farFog >= 1.0) discard; 
+
+                vec3 color = vec3(1.0, 0.75, 0.1); 
+                if (distFromCenter < 0.15) {
+                    color = vec3(1.0, 0.9, 0.5); 
+                }
+
+                // 综合透明度：基础形状 * 生命周期/地形遮罩 * 近处淡出 * 远处雾气
+                float finalAlpha = baseAlpha * vAlphaModifier * nearFade * (1.0 - farFog) * 0.8;
+                
+                gl_FragColor = vec4(color, finalAlpha);
+            }
+        `;
+
+
+        // 创建粒子材质
+        const particleMat = new THREE.ShaderMaterial({
+            vertexShader: particleVertex, 
+            fragmentShader: particleFragment,
+            uniforms: { uTime: seaUniforms.uTime }, // 共用同一个时间变量
+            transparent: true,
+            blending: THREE.AdditiveBlending, // 加法混合：重叠部分会变亮，产生发光效果
+            depthWrite: false, // 关闭深度写入：防止粒子互相遮挡，实现半透明叠加
+            depthTest: false
+        });
+        
+        // 将粒子添加到场景
+        scene.add(new THREE.Points(particleGeo, particleMat));
+
+
+// ==========================================
+        // 新增：20个随机散落的 3D 玻璃砖资源位
+        // ==========================================
+
+        // 1. 添加基础光照（物理材质必须有光照才能呈现出折射和高光）
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambientLight);
+        
+        const dirLight = new THREE.DirectionalLight(0xffffff, 3.0);
+        // 让光从侧上方打下来，能很好地照亮玻璃的边缘
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+// ==========================================
+        // 2. 配置高级琥珀材质
+        // ==========================================
+        const glassMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0xeef8ff,
+
+    metalness: 0,
+    roughness: 0.05,
+
+    transmission: 1,
+    ior: 1.5,
+
+    thickness: 1.2,
+
+    attenuationColor: 0xddeeff,
+    attenuationDistance: 5,
+
+    clearcoat: 1,
+    clearcoatRoughness: 0.01,
+
+    envMapIntensity: 1.5,
+
+    transparent: true,
+    side: THREE.DoubleSide
+});
+
+        // ==========================================
+        // 3. 定义琥珀的形状：由高精度球体扰动而成的“不规则原石”
+        // ==========================================
+        const brickGeo = new THREE.SphereGeometry(0.25, 64, 64);
+        const posAttribute = brickGeo.attributes.position;
+        const vTemp = new THREE.Vector3();
+
+        // 遍历所有顶点，用数学噪声“捏”出天然的凹凸起伏
+        for (let i = 0; i < posAttribute.count; i++) {
+            vTemp.fromBufferAttribute(posAttribute, i);
+            const dir = vTemp.clone().normalize();
+            
+            // 组合不同频率的三角函数，模拟自然界的不规则结核
+            const noise = Math.sin(vTemp.x * 20) * Math.cos(vTemp.y * 15) * Math.sin(vTemp.z * 10);
+            const lumpiness = 0.04 * noise; // 决定凹凸的强度
+            
+            // 沿法线方向偏移顶点
+            vTemp.addScaledVector(dir, lumpiness);
+            posAttribute.setXYZ(i, vTemp.x, vTemp.y, vTemp.z);
+        }
+        // 重新计算法线，否则表面折射和光照会出错（至关重要）
+        brickGeo.computeVertexNormals();
+        
+        const glassBricks = []; 
+        const brickGroup = new THREE.Group();
+        scene.add(brickGroup);
+
+        const BRICK_COUNT = 20; // 资源位数量
+
+        // ==========================================
+        // 4. 循环生成并随机散落
+        // ==========================================
+        for (let i = 0; i < BRICK_COUNT; i++) {
+            const brick = new THREE.Mesh(brickGeo, glassMaterial);
+
+            // 【新增】随机非等比缩放：让每一块琥珀看起来形态各异
+            brick.scale.set(
+                1.0 + Math.random() * 0.4, // X轴
+                0.6 + Math.random() * 0.4, // Y轴 (压扁一点，像天然水滴或卵石)
+                1.0 + Math.random() * 0.6  // Z轴
+            );
+
+            // 随机坐标生成
+            const randomX = (Math.random() - 0.5) * 70;
+            const randomZ = 5 - Math.random() * 155;
+            const randomY = 1.5 + Math.random() * 6.5;
+
+            brick.position.set(randomX, randomY, randomZ);
+
+            // 随机初始旋转角度
+            brick.rotation.set(
+                Math.random() * Math.PI,
+                Math.random() * Math.PI,
+                Math.random() * Math.PI
+            );
+
+            // 保存自定义数据
+            brick.userData = {
+                id: i, 
+                rotSpeedX: (Math.random() - 0.5) * 0.01, 
+                rotSpeedY: (Math.random() - 0.5) * 0.01, 
+                baseY: randomY,                          
+                floatSpeed: 0.5 + Math.random() * 1.0,   
+                floatOffset: Math.random() * Math.PI * 2 
+            };
+
+            brickGroup.add(brick);
+            glassBricks.push(brick);
+        }
+// ==========================================
+        // 4. 统一交互逻辑 (Pointer API 优化版)
+        // ==========================================
+
+        let isDragging = false;
+        let startX = 0, startY = 0;
+        let startCamX = 0, startCamZ = 0;
+        
+        let targetScrollY = 0, currentScrollY = 0;
+        let mouseX = 0, targetMouseX = 0;
+        let mouseY = 0, targetMouseY = 0;
+        
+        // 交互阈值与状态
+        let longPressTimer = null;
+        const LONG_PRESS_DELAY = 400; // 长按触发时间 (ms)
+        const DRAG_THRESHOLD = 5;     // 拖拽判定阈值 (px)
+        let lastFocusTime = 0;        // 记录最后一次触发聚焦的时间戳
+
+        // 聚焦状态
+        let isFocused = false;
+        let focusTarget = new THREE.Vector3(0, 0, 0);
+        let spherical = { radius: 12, theta: 0, phi: Math.PI / 3 };
+        let currentLookAt = new THREE.Vector3(0, -0.5, -30);
+        const raycaster = new THREE.Raycaster();
+        const mouseVector = new THREE.Vector2();
+        
+        // 获取地形网格进行射线检测
+        const terrainMesh = scene.children.find(obj => obj.type === 'Mesh'); 
+
+        // 灵敏度配置
+        const DRAG_SENSITIVITY = 0.05; 
+        const ROTATE_SENSITIVITY = 0.01;
+
+ function triggerFocus(clientX, clientY) { // 或者 function triggerFocus(pos) 
+            mouseVector.x = (clientX / window.innerWidth) * 2 - 1;
+            mouseVector.y = -(clientY / window.innerHeight) * 2 + 1;
+            
+            raycaster.setFromCamera(mouseVector, camera);
+            const intersects = raycaster.intersectObject(terrainMesh);
+            
+            if (intersects.length > 0) {
+                isFocused = true;
+                focusTarget.copy(intersects[0].point);
+                
+                // 【调整这里】
+                // 如果你想完全精准对齐点击的地面，直接注释掉或者删掉下面这行：
+                // focusTarget.y += 1.5; 
+                
+                // 或者你可以改成一个更小的微调值，比如 0.5，让它稍稍抬起一点点
+                focusTarget.y -= 0.5; 
+                
+                // 重置观察极坐标
+                spherical.radius = 12.0;
+                spherical.theta = 0;
+                spherical.phi = Math.PI / 3;
+                
+                lastFocusTime = Date.now(); 
+
+                if (navigator.vibrate) navigator.vibrate(30); 
+            }
+        }
+
+        function onPointerDown(e) {
+            // 忽略鼠标右键
+            if (e.button === 2) return; 
+            
+            startX = e.clientX;
+            startY = e.clientY;
+            startCamZ = baseCamZ - (currentScrollY * 0.025);
+            startCamX = mouseX * 4.0;
+            
+            targetScrollY = currentScrollY; 
+            isDragging = false; 
+
+            // 清除之前的定时器
+            if (longPressTimer) clearTimeout(longPressTimer);
+            
+            // 如果不在聚焦模式，启动长按判定
+            if (!isFocused) {
+                longPressTimer = setTimeout(() => {
+                    if (!isDragging) {
+                        triggerFocus(startX, startY);
+                    }
+                }, LONG_PRESS_DELAY);
+            }
+        }
+
+   function onPointerMove(e) {
+            // PC 端悬停效果 (未按下的状态)
+            if (e.pointerType === 'mouse' && e.buttons === 0) {
+                targetMouseX = (e.clientX / window.innerWidth) * 2 - 1;
+                targetMouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+                return;
+            }
+
+            // 计算滑动距离
+            const deltaX = e.clientX - startX;
+            const deltaY = e.clientY - startY;
+            const moveDist = Math.hypot(deltaX, deltaY);
+
+            // 超过阈值判定为拖拽
+            if (moveDist > DRAG_THRESHOLD && !isDragging) {
+                isDragging = true;
+                if (longPressTimer) {
+                    clearTimeout(longPressTimer);
+                    longPressTimer = null;
+                }
+            }
+
+            if (isDragging) {
+                if (e.cancelable) e.preventDefault(); 
+
+                if (isFocused) {
+                    // --- 聚焦模式：模拟游戏环绕视角 (固定高度) ---
+                    
+                    // 仅使用横向滑动 (deltaX) 来控制水平旋转角 (theta)
+                    // 注意这里使用 -= ：手指/鼠标向左滑时，相机向右绕，视野向左看。这符合绝大多数 3D 手游的视角控制习惯
+                    spherical.theta -= deltaX * ROTATE_SENSITIVITY; 
+                    
+                    // 我们不修改 spherical.phi (垂直角) 和 spherical.radius (距离)
+                    // 因为它们已经在 triggerFocus 中被固定 (例如 phi = Math.PI / 3)
+                    // 这样相机的绝对高度就完全被锁死了
+
+                    // 更新起始点，保证连续滑动的连贯性
+                    startX = e.clientX;
+                    startY = e.clientY;
+
+                } else {
+                    // --- 漫游模式：前后平移 ---
+                    const newCamZ = startCamZ - (deltaY * DRAG_SENSITIVITY);
+                    targetScrollY = (baseCamZ - newCamZ) / 0.025;
+                    
+                    const maxScroll = window.innerHeight * 3; 
+                    targetScrollY = Math.max(0, Math.min(targetScrollY, maxScroll));
+                }
+            }
+        }
+        function onPointerUp(e) {
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            // 如果发生过拖拽，说明用户的意图是移动视角，不触发退出
+            const wasDragging = isDragging;
+            isDragging = false;
+
+            // 退出聚焦逻辑：未拖拽(轻触) + 当前处于聚焦 + 距离上次触发超过 500ms(防误退)
+            if (!wasDragging && isFocused) {
+                const timeSinceFocus = Date.now() - lastFocusTime;
+                if (timeSinceFocus > 500) {
+                    isFocused = false;
+                    if (navigator.vibrate) navigator.vibrate(15);
+                    console.log("Focus Mode Deactivated");
+                }
+            }
+
+            // 重新同步漫游相机的基准
+            startCamZ = baseCamZ - (targetScrollY * 0.025);
+            startCamX = targetMouseX * 4.0;
+        }
+
+        // 使用 Pointer Events 替代 mouse 和 touch
+        window.addEventListener('pointerdown', onPointerDown, { passive: false });
+        window.addEventListener('pointermove', onPointerMove, { passive: false });
+        window.addEventListener('pointerup', onPointerUp);
+        window.addEventListener('pointercancel', onPointerUp); // 处理意外中断
+        
+        window.addEventListener('contextmenu', e => e.preventDefault());
+        
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            resizeFirefly();
+        });
+
+        // --- 5. 动画循环 ---
+        const clock = new THREE.Clock();
+        const v3Temp = new THREE.Vector3();
+
+        // 【新增】定义山谷边界 (Camera Walls)
+        // 根据 Shader: float sideZone = max(0.0, abs(p.x) - 14.0);
+        // 山谷中心在 0，两侧山脉在 +/- 14 开始升起。
+        // 我们设置墙壁在 +/- 12.5，留出一点缓冲空间，防止看到山体内部或黑边。
+        const WALL_LEFT = -2;
+        const WALL_RIGHT = 2;
+function clamp(val, min, max) {
+            return Math.max(min, Math.min(max, val));
+        }
+
+        function tick() {
+            const time = clock.getElapsedTime();
+            seaUniforms.uTime.value = time;
+
+            // 物理平滑过渡更新
+            if (isDragging) {
+                currentScrollY = targetScrollY;
+                mouseX = targetMouseX;
+                mouseY = targetMouseY;
+            } else {
+                currentScrollY += (targetScrollY - currentScrollY) * 0.08;
+                mouseX += (targetMouseX - mouseX) * 0.05;
+                mouseY += (targetMouseY - mouseY) * 0.05;
+            }
+
+            // ==========================================
+            // 计算目标位置与注视点
+            // ==========================================
+            if (isFocused) {
+                // --- 聚焦模式 (完全释放 X 轴限制，允许 360 度画圆) ---
+                const sinPhi = Math.sin(spherical.phi);
+                const cosPhi = Math.cos(spherical.phi);
+                const sinTheta = Math.sin(spherical.theta);
+                const cosTheta = Math.cos(spherical.theta);
+
+                const offsetX = spherical.radius * sinPhi * sinTheta;
+                const offsetY = spherical.radius * cosPhi;
+                const offsetZ = spherical.radius * sinPhi * cosTheta;
+
+                v3Temp.set(
+                    focusTarget.x + offsetX,
+                    focusTarget.y + offsetY,
+                    focusTarget.z + offsetZ
+                );
+                
+                if (isDragging) {
+                    camera.position.copy(v3Temp);
+                    // 【优化】拖拽时视角直接死锁目标，消除延迟导致的眩晕感
+                    currentLookAt.copy(focusTarget); 
+                } else {
+                    camera.position.lerp(v3Temp, 0.1);
+                    currentLookAt.lerp(focusTarget, 0.1);
+                }
+
+            } else {
+                // --- 正常漫游模式 ---
+                const scrollBasedZ = baseCamZ - (currentScrollY * 0.025);
+                const scrollBasedY = baseCamY + (currentScrollY * 0.0005);
+                
+                let targetX = 0; 
+                v3Temp.set(targetX, scrollBasedY, scrollBasedZ);
+                
+                if (isDragging) {
+                    camera.position.copy(v3Temp);
+                } else {
+                    camera.position.lerp(v3Temp, 0.05);
+                }
+
+                // 漫游时的前方注视点
+                const targetLookY = -0.5 - mouseY * 1.5; 
+                const targetLookZ = camera.position.z - 30;
+                
+                v3Temp.set(0, targetLookY, targetLookZ);
+                
+                if (isDragging) {
+                    currentLookAt.copy(v3Temp);
+                } else {
+                    currentLookAt.lerp(v3Temp, 0.05);
+                }
+
+                // ==========================================
+                // 【核心修复】边界限制 (Camera Walls) 仅在漫游时生效
+                // ==========================================
+                let currentX = camera.position.x;
+                if (currentX < WALL_LEFT || currentX > WALL_RIGHT) {
+                    camera.position.x = clamp(currentX, WALL_LEFT, WALL_RIGHT);
+                }
+            }
+
+            // 最后应用注视点
+            camera.lookAt(currentLookAt);
+// ==========================================
+            // 更新玻璃砖的悬浮与自转动画
+            // ==========================================
+            glassBricks.forEach(brick => {
+                const data = brick.userData;
+                // 缓慢自转
+                brick.rotation.x += data.rotSpeedX;
+                brick.rotation.y += data.rotSpeedY;
+                
+                // 正弦波上下呼吸悬浮动画
+                // 根据当前时间和随机属性，产生高低起伏
+                brick.position.y = data.baseY + Math.sin(time * data.floatSpeed + data.floatOffset) * 0.5;
+            });
+
+            // 原有代码
+            renderer.render(scene, camera);
+            requestAnimationFrame(tick);
+        }
+        
+        tick();
+    </script>
 </body>
 </html>
