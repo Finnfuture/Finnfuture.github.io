@@ -1,8 +1,7 @@
 /* Luique - Dark Skin Styles v1.0 */
-
 /**
 * Base Styles
-    ∏¸∂‡œ¬‘ÿ£∫http://www.bootstrapmb.com
+    ‰∏ãËΩΩÂú∞ÂùÄÔºöhttp://www.bootstrapmb.com
 **/
 
 .dark-skin ::-webkit-input-placeholder {
@@ -43,9 +42,7 @@ body.dark-skin {
 
 .dark-skin a:visited {
 	color: #29a587;
-}*/
-
-/* - Typography */
+}/* - Typography */
 
 .dark-skin h1,
 .dark-skin h2,
@@ -74,23 +71,11 @@ body.dark-skin {
 
 .dark-skin a.btn,
 .dark-skin .btn,
-.dark-skin .elementor a.btn,
-.dark-skin .elementor .btn,
 .dark-skin button,
 .dark-skin input[type="submit"] {
 	color: #fff;
   border-color: #a3a5a7;
   box-shadow: 5px 5px rgba(255, 255, 255, 0.1);
-}
-
-.dark-skin .btn.btn-solid,
-.dark-skin .elementor .btn.btn-solid {
-	color: #fff;
-}
-
-.dark-skin .btn-solid:after,
-.dark-skin .elementor .btn-solid:after {
-	color: #fff;
 }
 
 .dark-skin button,
@@ -117,45 +102,27 @@ body.dark-skin {
 	border: 2px solid #a3a5a7;
 }
 
-.dark-skin .block-quote,
-.dark-skin blockquote,
-.dark-skin .block-quote,
-.dark-skin .wp-block-quote,
-.dark-skin .wp-block-quote.is-large,
-.dark-skin .wp-block-quote.is-style-large,
-.dark-skin .wp-block-pullquote {
+.dark-skin blockquote{
 	color: #fff;
 	border-left: 1px solid #a3a5a7;
 }
 
-.dark-skin .block-quote:before,
-.dark-skin blockquote:before,
-.dark-skin .block-quote:before,
-.dark-skin .wp-block-quote:before,
-.dark-skin .wp-block-quote.is-large:before,
-.dark-skin .wp-block-quote.is-style-large:before,
-.dark-skin .wp-block-pullquote:before {
+.dark-skin blockquote:before{
 	filter: invert(0);
 }
 
-.dark-skin select,
-.dark-skin .custom-select {
+.dark-skin select{
 	background-color: transparent;
 	border: 1px solid #a3a5a7;
 	color: #fff;
 }
 
-.dark-skin select,
-.dark-skin .custom-select {
+.dark-skin select{
   filter: invert(1);
 }
 
 .dark-skin hr {
 	border-top: 1px solid #777;
-}
-
-.dark-skin .alert-success {
-	color: #FFF;
 }
 
 /* - Wrapper */
@@ -224,10 +191,6 @@ body.dark-skin {
 	}
 }
 
-.dark-skin .header.sticky .navbar.default:before {
-	background: #1d222a;
-}
-
 .dark-skin .menu-btn span {
 	background: #fff;
 }
@@ -260,14 +223,6 @@ body.dark-skin {
 	color: #29a587;
 }
 
-.dark-skin .header .logo .logotype__title {
-	color: #fff;
-}
-
-.dark-skin .header .logo .logotype__sub {
-	color: #eaeaea;
-}
-
 .dark-skin .header__builder .logo img,
 .dark-skin .preloader .spinner-logo img {
   filter: brightness(0) invert(1);
@@ -281,13 +236,11 @@ body.dark-skin {
 	border-top: 1px solid rgba(255,255,255,0.05);
 }
 
-.dark-skin .footer .copyright-text a,
-.dark-skin .footer .footer-heading a {
+.dark-skin .footer .copyright-text a{
 	color: #fff;
 }
 
-.dark-skin .footer .copyright-text a:hover,
-.dark-skin .footer .footer-heading a:hover {
+.dark-skin .footer .copyright-text a:hover{
 	color: #29a587;
 }
 
@@ -340,10 +293,6 @@ body.dark-skin {
 }
 
 .dark-skin .h-titles .h-title {
-	color: #fff;
-}
-
-.dark-skin .h-titles .h-subtitle {
 	color: #fff;
 }
 
@@ -453,23 +402,9 @@ body.dark-skin {
 }
 
 .dark-skin .services-item .image,
-.dark-skin .works-item .bg-img,
-.dark-skin .testimonials-item .bg-img,
-.dark-skin .pricing-item .bg-img {
+.dark-skin .works-item .bg-img{
 	opacity: 0.6;
   filter: invert(1);
-}
-
-/**
-* Section Works
-**/
-
-.dark-skin .filter-links a {
-	color: #fff;
-}
-
-.dark-skin .filter-links a.active {
-	color: #29a587;
 }
 
 .dark-skin .works-item .image:before,
@@ -482,14 +417,6 @@ body.dark-skin {
 	background: #222831;
 }
 
-.dark-skin .works-items.works-list-items .works-item .desc .name {
-	color: #fff;
-}
-
-.dark-skin .works-items.works-list-items .works-item .desc .name a {
-	color: #fff;
-}
-
 .dark-skin .works-items.works-masonry-items .works-item {
 	background: #1d222a;
 }
@@ -500,45 +427,6 @@ body.dark-skin {
 
 .dark-skin .works-item:hover .desc .name a {
 	color: #29a587;
-}
-
-/**
-* Section Pricing
-**/
-
-.dark-skin .pricing-item {
-	background: #1d222a;
-	border: 2px solid #1d222a;
-}
-
-.dark-skin .pricing-col.center .pricing-item {
-	border-color: #a3a5a7;
-}
-
-.dark-skin .pricing-col.center .label {
-	color: #fff;
-	border: 2px solid #29a587;
-  box-shadow: 5px 5px 0px 0px rgba(255, 255, 255, 0.1);
-}
-
-.dark-skin .pricing-item .price {
-	color: #fff;
-}
-
-.dark-skin .pricing-item .list ul li em {
-	color: #676767;
-}
-
-/**
-* Section Testimonials
-**/
-
-.dark-skin .testimonials-item {
-	background: #1d222a;
-}
-
-.dark-skin .testimonials-item .icon {
-	background: #1d222a;
 }
 
 /**
@@ -558,40 +446,14 @@ body.dark-skin {
 }
 
 /**
-* Section Contacts
-**/
-
-.dark-skin .numbers-item .icon {
-	border: 2px solid #a3a5a7;
-	background-color: #1d222a;
-	box-shadow: 5px 5px 0px 0px rgb(255 255 255 / 10%);
-}
-
-.dark-skin .numbers-item .icon:after {
-	background: #a3a5a7;
-}
-
-.dark-skin .numbers-item .title {
-	color: #fff;
-}
-
-.dark-skin .contacts-form .bg-img {
-	filter: invert(1);
-  opacity: 0.6;
-}
-
-/**
 * Section Project Details
 **/
-
 /**
 * Section Image Large
 **/
-
 /**
 * Section Video Large
 **/
-
 /**
 * Section Navigation
 **/
@@ -608,45 +470,21 @@ body.dark-skin {
 * Section Archive
 **/
 
-.dark-skin .post-content table th,
-.dark-skin .wp-block-table.is-style-stripes th {
+.dark-skin .post-content table th{
 	border: 1px solid #666;
 }
 
-.dark-skin .post-content table tbody th,
-.dark-skin .wp-block-table.is-style-stripes tbody th {
+.dark-skin .post-content table tbody th{
 	border: 1px solid #666;
 }
 
-.dark-skin .post-content table td,
-.dark-skin .wp-block-table.is-style-stripes td {
+.dark-skin .post-content table td{
 	border: 1px solid #666;
 	color: #fff;
 }
 
 .dark-skin .post-content ol,
 .dark-skin .post-content ul {
-	color: #fff;
-}
-
-.dark-skin a.page-numbers,
-.dark-skin .page-numbers,
-.dark-skin .post-page-numbers {
-	color: #fff;
-}
-
-.dark-skin a.page-numbers.prev .icon-arrow:before,
-.dark-skin a.page-numbers.prev .icon-arrow:after,
-.dark-skin a.page-numbers.next .icon-arrow:before,
-.dark-skin a.page-numbers.next .icon-arrow:after {
-	background: #fff;
-}
-
-.dark-skin a.page-numbers.current,
-.dark-skin a.post-page-numbers.current,
-.dark-skin .page-numbers.current,
-.dark-skin .post-page-numbers.current {
-	background: #29a587;
 	color: #fff;
 }
 
@@ -658,94 +496,20 @@ body.dark-skin {
 	border-left: 1px solid #666;
 }
 
-.dark-skin .content-sidebar .search-form input[type="text"],
-.dark-skin .content-sidebar .search-form input[type="search"],
-.dark-skin .wp-block-search input[type="text"],
-.dark-skin .wp-block-search input[type="search"],
-.dark-skin .wc-block-product-search__fields input[type="search"] {
-	color: #fff;
-	border: 1px solid #a3a5a7;
-}
-
-.dark-skin .content-sidebar .search-form input.btn_search,
-.dark-skin input.search-submit,
-.dark-skin .wp-block-search .wp-block-search__button,
-.dark-skin .wc-block-product-search .wc-block-product-search__button {
-	filter: invert(1);
-}
-
-.dark-skin .content-sidebar ul li a,
-.dark-skin .post-content .wp-block-archives li a {
+.dark-skin .content-sidebar ul li a{
 	color: #fff;
 }
 
-.dark-skin .content-sidebar ul li a:hover,
-.dark-skin .post-content .wp-block-archives li a:hover {
+.dark-skin .content-sidebar ul li a:hover{
 	color: #29a587;
-}
-
-.dark-skin .calendar_wrap table td,
-.dark-skin .wp-block-calendar table td {
-	border: 1px solid #666;
-}
-
-.dark-skin .wp-block-calendar tfoot a {
-	color: #fff;
 }
 
 .dark-skin .content-sidebar ul ul li:before {
 	background: #fff;
 }
 
-.dark-skin .content-sidebar ul li a.rsswidget,
-.dark-skin .wp-block-rss li a {
-	color: #fff;
-}
-
-.dark-skin .content-sidebar ul li .rss-date,
 .dark-skin .content-sidebar ul li cite {
 	color: #666;
-}
-
-.dark-skin .tags-links a,
-.dark-skin .col__sedebar .tagcloud a,
-.dark-skin .wp-block-tag-cloud a {
-	color: #fff;
-}
-
-.dark-skin .comment-box__details {
-	color: #fff;
-}
-
-.dark-skin .comment-box__details a {
-	color: #fff;
-}
-
-.dark-skin .comment-box__details span {
-	color: #666;
-}
-
-.dark-skin .comment-respond .comment-form-cookies-consent label {
-	color: #fff;
-}
-
-.dark-skin .post-edit-link {
-	color: #fff;
-}
-
-.dark-skin .share-post .share-btn {
-	border: 1px solid #666;
-	color: #fff;
-}
-
-.dark-skin .share-post .share-btn:hover {
-	color: #29a587;
-	border-color: #29a587;
-}
-
-.dark-skin .wp-block-latest-comments__comment-date,
-.dark-skin .wp-block-latest-posts__post-date {
-	color: #565656;
 }
 
 .dark-skin .m-page-navigation, .dark-skin .section.section-inner.m-page-navigation {
