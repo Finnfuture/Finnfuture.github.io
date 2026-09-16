@@ -18,6 +18,17 @@ if(isset($_POST)){
 
 	$mail = new PHPMailer;
 
+	// If SMTP settings provided in form_setting.php, configure SMTP
+	if(isset($use_smtp) && $use_smtp===true) {
+		$mail->isSMTP();
+		$mail->Host = $smtp_host;
+		$mail->Port = $smtp_port;
+		$mail->SMTPAuth = $smtp_auth;
+		if(!empty($smtp_secure)) $mail->SMTPSecure = $smtp_secure;
+		$mail->Username = $smtp_username;
+		$mail->Password = $smtp_password;
+	}
+
 	$mail->From = $from;
 	$mail->FromName = $fromName;
 	$mail->addAddress($to, 'Admin');
@@ -29,7 +40,12 @@ if(isset($_POST)){
 	$mail->Body    = $messages;
 
 	if(!$mail->send()) {
-	    print json_encode(array('status'=>0));
+	    // for debugging, return error message when DEBUG param present
+	    $resp = array('status'=>0);
+	    if(isset($_GET['debug']) && $_GET['debug']==1){
+	        $resp['error'] = $mail->ErrorInfo;
+	    }
+	    print json_encode($resp);
 	} else {
 	    print json_encode(array('status'=>1));
 	}
