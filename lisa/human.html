@@ -202,9 +202,16 @@
                  模型为同目录下的 lisa.glb，环境贴图为 envmap.exr，屏幕视频为 running_code.mp4 -->
             <div class="c-lisa_visualizer" data-module-lisa-visualizer></div>
 
-            <!-- 声音开关：点它切换 ambient.mp3 的播放 / 停止 -->
+            <!-- 声音开关：点它切换 ambient.mp3 的播放 / 停止（图标默认就有，脚本只负责切换）
+                 注意：图标用 style="fill:#fff" 内联写死，main.css 里 svg{fill:...} 之类的规则覆盖不了它 -->
             <button type="button" id="lisa-sound" aria-label="Sound" title="Play"
-                style="position:fixed;right:18px;bottom:18px;z-index:2147483647;width:48px;height:48px;padding:0;border:0;border-radius:50%;background:#000;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:box-shadow .2s ease"></button>
+                style="position:fixed;right:18px;bottom:18px;z-index:2147483647;width:48px;height:48px;padding:0;border:0;border-radius:50%;background:#000;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:box-shadow .2s ease">
+                <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">
+                    <path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z" />
+                    <path d="M14.4 8.4a4.8 4.8 0 0 1 0 7.2l1.5 1.5a6.9 6.9 0 0 0 0-10.2z" />
+                    <path d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z" />
+                </svg>
+            </button>
         </div>
     </main>
 
@@ -225,11 +232,11 @@
             var audio = document.getElementById('lisa-ambient');
             var button = document.getElementById('lisa-sound');
 
-            var ICON_ON = '<svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">' +
+            var ICON_ON = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">' +
                 '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
                 '<path d="M14.4 8.4a4.8 4.8 0 0 1 0 7.2l1.5 1.5a6.9 6.9 0 0 0 0-10.2z"/>' +
                 '<path d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z"/></svg>';
-            var ICON_OFF = '<svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">' +
+            var ICON_OFF = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">' +
                 '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
                 '<g transform="rotate(45 19.4 12)"><rect x="18.45" y="7.4" width="1.9" height="9.2" rx=".95"/>' +
                 '<rect x="14.8" y="11.05" width="9.2" height="1.9" rx=".95"/></g></svg>';
@@ -273,21 +280,17 @@
     <script src="./app.js" defer></script>
 
     <script>
-        /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError，看着像“按钮坏了”），
-           这里直接把正确用法盖在屏上，避免误会 */
+        /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError 和 403，看着像“按钮坏了”）。
+           这里只在顶部放一条横幅提示，不遮住页面右下角的按钮。 */
         if (location.protocol === 'file:') {
             var tip = document.createElement('div');
-            tip.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;display:flex;' +
-                'align-items:center;justify-content:center;padding:32px;text-align:center;background:rgba(0,0,0,.88);' +
-                'color:#fff;font:15px/1.8 system-ui,-apple-system,"Microsoft YaHei",sans-serif';
-            tip.innerHTML = '<div style="max-width:600px">' +
-                '<div style="font-size:20px;font-weight:600;margin-bottom:14px">请用本地服务打开这个页面</div>' +
-                '当前是 <b style="color:#ffd166">file://</b> 方式打开的，浏览器会拦截本地的音频 / 模型文件（<br>' +
-                '控制台里只能看到 <code>NotSupportedError</code> 和 403，看着像按钮坏了，其实是加载被拦）。<br><br>' +
-                '<b>正确做法：双击同目录的「启动本地服务.bat」</b>，它会起服务并自动打开：<br>' +
-                '<code style="color:#8ecae6">http://127.0.0.1:8000/human.html</code><br><br>' +
-                '或在本目录执行：<code style="color:#8ecae6">python -m http.server 8000</code>' +
-                '</div>';
+            tip.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:21474836;padding:14px 20px;' +
+                'background:rgba(0,0,0,.88);color:#fff;text-align:center;pointer-events:none;' +
+                'font:14px/1.7 system-ui,-apple-system,"Microsoft YaHei",sans-serif';
+            tip.innerHTML =
+                '<b style="color:#ffd166">当前是 file:// 方式打开</b>，浏览器会拦掉本地音频 / 模型（所以按钮点了没声音，控制台是 NotSupportedError / 403）。　' +
+                '正确做法：双击同目录的「启动本地服务.bat」，或在本目录执行 <code>python -m http.server 8000</code>，' +
+                '然后打开 <code style="color:#8ecae6">http://127.0.0.1:8000/human.html</code>';
             document.body.appendChild(tip);
         }
     </script>

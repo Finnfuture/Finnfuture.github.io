@@ -5635,6 +5635,9 @@ Object.assign(oP.prototype, {
 
 var lisaInitOriginal = oP.prototype.init;
 oP.prototype.init = function () {
+    /* 手机上默认用 compact 取景（viewOffset.y = 0，模型贴底）；
+       原站是用非 compact 把模型抬高 25% 给底部对话框让位，本页没有对话框，抬高就会显得“悬在空中” */
+    this.compact = !0;
     let t = this, p = lisaInitOriginal.apply(this, arguments);
     Promise.resolve(p).then(() => t.lisaBoot(), () => t.lisaBoot());
     return p;
