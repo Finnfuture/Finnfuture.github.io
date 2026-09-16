@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<!--
+  Lisa · 精简版页面：仅保留 3D 人物模型 + 声音相关代码
+  · 3D 模型：./lisa.glb     环境贴图：./envmap.exr
+  · 屏幕代码纹理：./running_code.mp4（“闪屏”里的代码窗口贴图，本地文件）
+  · 表情视频：走网络（表情.txt 里的 mux 直播流，已在 app.js 的 LISA_EXPRESSIONS 中配置）
+  · 环境音：./ambient.mp3
+  · 交互：
+      1) 首次加载显示原来的 “[CLICK] TO START”，鼠标点击 / 按键（或声音自动播放成功）后开始；
+      2) 每次切换都会走原来的“闪屏”过渡（glitch + 代码窗口拉满后回落）；
+      3) 鼠标向右移动 → 换屏幕右半边的表情视频，向左移动 → 换左半边，左右各自轮换；
+      4) 鼠标静止 7~16 秒会像原来一样自动换一个表情或回到 setIdle() 随机内容。
+  · 必须通过本地 HTTP 服务访问（例如 `python -m http.server 8000` 或 `npx serve`）。
+    直接双击以 file:// 打开时，浏览器会因 CORS 拦截 .glb / .mp4 / .mp3 / .exr 的加载。
+-->
+<html class="js-focus-visible is-loaded is-ready" lang="en" data-template="lisa" data-theme="lisa">
+
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="x-ua-compatible" content="ie=edge">
+
+    <title>Lisa</title>
+
+    <meta name="description" content="Lisa - 3D model">
+
+    <!-- Viewport -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="HandheldFriendly" content="true">
+
+    <!-- Appearance -->
+    <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+    <meta name="theme-color" content="#ffffff">
+
+    <!-- 基础重置（只保留 3D 模型容器 / canvas / 声音按钮所需的部分，主题变量主体在 main.css） -->
+    <style>
+        html {
+            box-sizing: border-box;
+            min-height: 100%;
+            line-height: 1.3;
+            color: var(--color);
+            background-color: var(--color-bg);
+            -webkit-text-size-adjust: 100%;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale
+        }
+
+        *,
+        :before,
+        :after {
+            box-sizing: inherit
+        }
+
+        body {
+            margin: 0;
+            width: 100%
+        }
+
+        main {
+            display: block
+        }
+
+        :root {
+            --color: #000000;
+            --color-bg: #FFFFFF;
+            --font-size: 15px
+        }
+
+        html[data-theme=lisa] {
+            --color-bg: #FFFFFF;
+            --color: #000000
+        }
+
+        /* 字体改成本地相对路径：main.css 里用的是 /xxx.woff2 这种根路径，
+           服务不在根目录/根目录没有这些文件时会 403/404（控制台会一直在报错） */
+        @font-face {
+            font-display: swap;
+            font-family: "HelveticaNowDisplay";
+            src: url("./PPLocomotiveNew-Light.woff2") format("woff2"),
+                url("./HelveticaNowDisplay-Regular.woff2") format("woff2");
+            font-weight: 400;
+            font-style: normal
+        }
+
+        @font-face {
+            font-display: swap;
+            font-family: "LocomotiveNew";
+            src: url("./PPLocomotiveNew-Light.woff2") format("woff2");
+            font-weight: 400;
+            font-style: normal
+        }
+
+        audio,
+        canvas,
+        iframe,
+        img,
+        svg,
+        video {
+            vertical-align: middle
+        }
+
+        img,
+        svg {
+            max-width: 100%;
+            height: auto
+        }
+
+        svg {
+            fill: currentColor
+        }
+
+        [hidden],
+        template {
+            display: none
+        }
+
+        button {
+            display: inline-block;
+            overflow: visible;
+            margin: 0;
+            padding: 0;
+            outline: 0;
+            border: 0;
+            background: none rgba(0, 0, 0, 0);
+            color: inherit;
+            vertical-align: middle;
+            text-align: center;
+            text-decoration: none;
+            text-transform: none;
+            font: inherit;
+            line-height: normal;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            user-select: none;
+            -webkit-appearance: button;
+            -moz-appearance: none;
+            appearance: none
+        }
+
+        ::selection {
+            background-color: var(--color);
+            color: var(--color-bg)
+        }
+
+        /* app.js 的启动流程会读取 #preloader / #preloaderHead / #preloaderContent / #preloaderLogo，
+           这里保留空壳（不含任何品牌 Logo），启动后自动淡出并移除 */
+        .c-preloader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            color: #fff;
+            z-index: 9999;
+            transition: opacity .9s cubic-bezier(.215, .61, .355, 1)
+        }
+
+        .c-preloader_outer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center
+        }
+
+        .c-preloader_logo {
+            display: block
+        }
+
+        html:not(.is-first-loading) .c-preloader {
+            opacity: 0;
+            pointer-events: none
+        }
+    </style>
+
+    <link id="main-css" rel="stylesheet" href="./main.css" media="all"
+        onload="this.media='all'; this.onload=null; this.isLoaded=true">
+</head>
+
+<body>
+
+    <div class="c-preloader" id="preloader">
+        <div class="c-preloader_outer">
+            <span class="c-preloader_logo" id="preloaderLogo"></span>
+        </div>
+        <span id="preloaderHead"></span>
+        <span id="preloaderContent" style="display:none"></span>
+    </div>
+
+    <main>
+        <div class="c-lisa is-compact">
+            <!-- 环境音：同目录的 ambient.mp3（浏览器会拦截自动播放，首次点击后播放） -->
+            <audio id="lisa-ambient" src="ambient.mp3" loop preload="auto"></audio>
+
+            <!-- 3D 人物模型：app.js 里的 LisaVisualizer 模块会把 canvas 挂载到该节点，
+                 模型为同目录下的 lisa.glb，环境贴图为 envmap.exr，屏幕视频为 running_code.mp4 -->
+            <div class="c-lisa_visualizer" data-module-lisa-visualizer></div>
+
+            <!-- 声音开关：点它切换 ambient.mp3 的播放 / 停止 -->
+            <button type="button" id="lisa-sound" aria-label="Sound" title="Play"
+                style="position:fixed;right:18px;bottom:18px;z-index:2147483647;width:48px;height:48px;padding:0;border:0;border-radius:50%;background:#000;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:box-shadow .2s ease"></button>
+        </div>
+    </main>
+
+    <script>
+        /* app.js 的启动流程依赖这两个 Promise（必需，且必须在 app.js 之前定义） */
+        window.preloaderEnterPromise = new Promise(resolve => {
+            setTimeout(resolve, 1200);
+        });
+
+        window.preloaderPromise = new Promise(resolve => {
+            window.preloaderPromiseResolve = resolve;
+        });
+    </script>
+
+    <!-- 声音：直接播放同目录的 ambient.mp3 -->
+    <script>
+        (function () {
+            var audio = document.getElementById('lisa-ambient');
+            var button = document.getElementById('lisa-sound');
+
+            var ICON_ON = '<svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">' +
+                '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
+                '<path d="M14.4 8.4a4.8 4.8 0 0 1 0 7.2l1.5 1.5a6.9 6.9 0 0 0 0-10.2z"/>' +
+                '<path d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z"/></svg>';
+            var ICON_OFF = '<svg viewBox="0 0 24 24" width="26" height="26" fill="#fff" aria-hidden="true">' +
+                '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
+                '<g transform="rotate(45 19.4 12)"><rect x="18.45" y="7.4" width="1.9" height="9.2" rx=".95"/>' +
+                '<rect x="14.8" y="11.05" width="9.2" height="1.9" rx=".95"/></g></svg>';
+
+            function render() {
+                var on = !audio.paused;
+                button.innerHTML = on ? ICON_ON : ICON_OFF;
+                button.style.boxShadow = on ? 'none' : 'inset 0 0 0 3px #fff';
+                button.title = on ? 'Mute' : 'Play';
+            }
+
+            function play() {
+                audio.muted = false;
+                var p = audio.play();
+                if (p && p.catch) p.catch(function (e) {
+                    console.warn('[sound] play 失败：', e && e.name, audio.currentSrc || audio.src);
+                });
+            }
+
+            /* 点按钮：正在响 → 停；没声音 → 播 */
+            button.addEventListener('click', function () {
+                if (audio.paused) play(); else audio.pause();
+            });
+
+            audio.addEventListener('play', render);
+            audio.addEventListener('pause', render);
+
+            /* 浏览器默认拦截自动播放：先试一次，被拦就在第一次点击页面（按钮除外）时再放 */
+            play();
+            document.addEventListener('pointerdown', function first(event) {
+                if (button.contains(event.target)) return;
+                document.removeEventListener('pointerdown', first, true);
+                if (audio.paused) play();
+            }, true);
+
+            render();
+        })();
+    </script>
+
+    <script src="./vendors.js" defer></script>
+    <script src="./app.js" defer></script>
+
+    <script>
+        /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError，看着像“按钮坏了”），
+           这里直接把正确用法盖在屏上，避免误会 */
+        if (location.protocol === 'file:') {
+            var tip = document.createElement('div');
+            tip.style.cssText = 'position:fixed;left:0;top:0;right:0;bottom:0;z-index:2147483647;display:flex;' +
+                'align-items:center;justify-content:center;padding:32px;text-align:center;background:rgba(0,0,0,.88);' +
+                'color:#fff;font:15px/1.8 system-ui,-apple-system,"Microsoft YaHei",sans-serif';
+            tip.innerHTML = '<div style="max-width:600px">' +
+                '<div style="font-size:20px;font-weight:600;margin-bottom:14px">请用本地服务打开这个页面</div>' +
+                '当前是 <b style="color:#ffd166">file://</b> 方式打开的，浏览器会拦截本地的音频 / 模型文件（<br>' +
+                '控制台里只能看到 <code>NotSupportedError</code> 和 403，看着像按钮坏了，其实是加载被拦）。<br><br>' +
+                '<b>正确做法：双击同目录的「启动本地服务.bat」</b>，它会起服务并自动打开：<br>' +
+                '<code style="color:#8ecae6">http://127.0.0.1:8000/human.html</code><br><br>' +
+                '或在本目录执行：<code style="color:#8ecae6">python -m http.server 8000</code>' +
+                '</div>';
+            document.body.appendChild(tip);
+        }
+    </script>
+</body>
+
+</html>
+
