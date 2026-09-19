@@ -180,7 +180,8 @@
     </style>
 
     <link id="main-css" rel="stylesheet" href="./main.css" media="all"
-        onload="this.media='all'; this.onload=null; this.isLoaded=true">
+        onload="this.media='all'; this.onload=null; this.isLoaded=true;"
+        onerror="window.__lisaCssFailed=1; this.isLoaded=true; if(!this.__errFired){this.__errFired=1; try{this.dispatchEvent(new Event('load'))}catch(e){var _e=document.createEvent('HTMLEvents');_e.initEvent('load',false,false);this.dispatchEvent(_e)}}">
 </head>
 
 <body>
@@ -276,8 +277,140 @@
         })();
     </script>
 
-    <script src="./vendors.js" defer></script>
-    <script src="./app.js" defer></script>
+    <!-- =====================================================================
+         启动自检（正常启动时完全看不到；只在启动失败时把原因显示在屏幕上）
+         · 捕获 JS 报错，以及 main.css / vendors.js / app.js 的下载失败
+         · 全部用 ES5 写：微信/QQ 内置浏览器这类旧内核也要能跑起来显示原因
+         ===================================================================== -->
+    <script>
+        (function () {
+            var problems = [];
+            window.__lisaProblems = problems;
+
+            function addProblem(msg) {
+                for (var i = 0; i < problems.length; i++) { if (problems[i] === msg) { return; } }
+                if (problems.length < 12) { problems.push(msg); }
+            }
+            window.__lisaAddProblem = addProblem;
+
+            window.addEventListener('error', function (e) {
+                var t = e && e.target;
+                if (t && t !== window && t.tagName) {
+                    if (t.tagName === 'SCRIPT') { addProblem('脚本加载失败：' + (t.src || 'inline')); return; }
+                    if (t.tagName === 'LINK') { addProblem('样式加载失败：' + (t.href || '')); return; }
+                }
+                var msg = (e && (e.message || (e.error && e.error.message))) || '未知错误';
+                var where = (e && e.filename) ? ('  @' + e.filename.split('/').pop() + ':' + e.lineno + ':' + e.colno) : '';
+                addProblem('JS 报错：' + msg + where);
+            }, true);
+
+            window.addEventListener('unhandledrejection', function (e) {
+                var r = e && e.reason;
+                addProblem('未处理的 Promise 拒绝：' + ((r && (r.message || r.name)) || String(r)));
+            });
+        })();
+    </script>
+
+    <script>
+        (function () {
+            var t0 = new Date().getTime();
+            var SHOW_AFTER = 25000;
+            var timer = null;
+
+            function row(label, value, ok) {
+                var d = document.createElement('div');
+                d.style.cssText = 'margin:2px 0;font:13px/1.7 Consolas,monospace;word-break:break-all;color:' +
+                    (ok === false ? '#c62828' : ok === true ? '#2e7d32' : '#333');
+                d.textContent = (ok === true ? '[OK] ' : ok === false ? '[FAIL] ' : '[--] ') + label + (value ? '：' + value : '');
+                return d;
+            }
+
+            function title(txt) {
+                var d = document.createElement('div');
+                d.style.cssText = 'font-size:17px;font-weight:700;margin:0 0 10px';
+                d.textContent = txt;
+                return d;
+            }
+
+            function build(mode) {
+                var box = document.createElement('div');
+                box.id = 'lisa-selfcheck';
+                box.style.cssText = 'position:fixed;left:0;right:0;top:0;bottom:0;z-index:2147483647;' +
+                    'background:rgba(255,255,255,.97);color:#111;overflow:auto;-webkit-overflow-scrolling:touch;' +
+                    'padding:18px 16px 48px;font:14px/1.75 system-ui,-apple-system,"Microsoft YaHei",sans-serif';
+                box.appendChild(title(mode === 'slow'
+                    ? '⏳ Lisa 页面还没启动完（资源还在加载，或浏览器不支持 WebGL）'
+                    : '⚠ Lisa 页面没能启动 —— 这就是白屏的原因'));
+
+                var res = window.__lisaRes || {};
+                var cv = document.querySelector('.c-lisa_visualizer canvas');
+                var cssOk = window.__lisaCssFailed ? false : true;
+                box.appendChild(row('main.css（页面样式）', window.__lisaCssFailed ? '加载失败' : '已加载', cssOk));
+                box.appendChild(row('vendors.js（兼容垫片）', res.vendors === 'fail' ? '加载失败' : (res.vendors === 'ok' ? '已加载' : '未完成'), res.vendors === 'fail' ? false : (res.vendors === 'ok' ? true : null)));
+                box.appendChild(row('app.js（主程序 2.9MB）', res.appJs === 'fail' ? '加载失败' : (res.appJs === 'ok' ? '已加载' : '未完成'), res.appJs === 'fail' ? false : (res.appJs === 'ok' ? true : null)));
+                box.appendChild(row('three.js 是否已执行', window.__THREE__ ? '是' : '否', window.__THREE__ ? true : false));
+                box.appendChild(row('3D 画布', cv ? (cv.width + '×' + cv.height) : '没有', cv ? true : false));
+
+                var problems = window.__lisaProblems || [];
+                if (problems.length) {
+                    var t = document.createElement('div');
+                    t.style.cssText = 'margin:14px 0 4px;font-weight:700';
+                    t.textContent = '捕获到的错误：';
+                    box.appendChild(t);
+                    for (var i = 0; i < problems.length; i++) { box.appendChild(row('', problems[i], false)); }
+                }
+
+                var ua = navigator.userAgent || '';
+                box.appendChild(row('当前地址', location.href, null));
+                box.appendChild(row('浏览器', ua, null));
+
+                var tips = document.createElement('div');
+                tips.style.cssText = 'margin:14px 0 0;padding:10px 12px;background:#f4f4f5;border-radius:8px;font-size:13px;line-height:1.8';
+                var html = '<b>怎么排查：</b><br>1) 在手机浏览器直接打开<br>' +
+                    '<span style="word-break:break-all">' + location.href.replace(/[^\/]*$/, 'app.js') + '</span><br>' +
+                    '能出代码说明网络没问题，出不来就是资源被拦/被墙（换网络或改用局域网方式）；<br>' +
+                    '2) 点下面按钮重新加载；<br>3) 若浏览器较旧，换系统自带浏览器（Safari / Chrome）打开。';
+                if (/MicroMessenger|MQQBrowser|QQ\/|UCBrowser|Quark/i.test(ua)) {
+                    html += '<br><b style="color:#c62828">你现在用的是微信/QQ/UC 内置浏览器，内核较旧，很可能解析不了这个页面的脚本 —— 请用系统自带浏览器打开同一地址。</b>';
+                }
+                tips.innerHTML = html;
+                box.appendChild(tips);
+
+                var btn = document.createElement('button');
+                btn.type = 'button';
+                btn.textContent = '重新加载';
+                btn.style.cssText = 'margin-top:14px;padding:12px 22px;border:0;border-radius:999px;background:#111;color:#fff;font:15px/1 system-ui,sans-serif';
+                btn.onclick = function () { location.reload(); };
+                box.appendChild(btn);
+
+                var old = document.getElementById('lisa-selfcheck');
+                if (old && old.parentNode) { old.parentNode.removeChild(old); }
+                document.body.appendChild(box);
+            }
+
+            function tick() {
+                if (document.querySelector('.c-lisa_visualizer canvas')) {
+                    var box = document.getElementById('lisa-selfcheck');
+                    if (box && box.parentNode) { box.parentNode.removeChild(box); }
+                    window.clearInterval(timer);
+                    return;
+                }
+                if (new Date().getTime() - t0 > SHOW_AFTER) {
+                    var res = window.__lisaRes || {};
+                    build((res.appJs === 'fail' || window.__lisaCssFailed === 1) ? 'fail' : 'slow');
+                }
+            }
+
+            timer = window.setInterval(tick, 700);
+        })();
+    </script>
+
+    <script src="./vendors.js" defer
+        onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.vendors='ok'"
+        onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.vendors='fail'"></script>
+    <script src="./app.js" defer
+        onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.appJs='ok'"
+        onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.appJs='fail'"></script>
 
     <script>
         /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError 和 403，看着像“按钮坏了”）。

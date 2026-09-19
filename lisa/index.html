@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<!--
+  Lisa 3D 页面入口（纯前端，无任何后端依赖）
+  · 作用：让 https://<用户名>.github.io/<仓库>/lisa/ 这种“目录地址”也能进 3D 页面
+    （之前直接打开这个目录地址时，GitHub Pages 因为根目录没有 .nojekyll，
+     会用 Jekyll 把 lisa/README.md 渲染成目录首页，看起来就“不是那个页面”）
+  · 真正的页面还是 human.html，本文件只是立刻跳过去
+-->
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <title>Lisa</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta http-equiv="refresh" content="0; url=./human.html">
+    <link rel="canonical" href="./human.html">
+    <style>
+        html,
+        body {
+            margin: 0;
+            height: 100%;
+            background: #fff;
+            color: #111;
+            font: 15px/1.8 system-ui, -apple-system, "Microsoft YaHei", sans-serif
+        }
+
+        main {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center
+        }
+
+        a {
+            color: #111
+        }
+    </style>
+</head>
+
+<body>
+    <main>
+        <p>正在进入 Lisa 3D 页面…<br>如果没有自动跳转，请点这里：<a href="./human.html">human.html</a></p>
+    </main>
+    <script>
+        /* 立刻跳转（比 meta refresh 更稳，JS 被拦时还有 meta refresh 兜底） */
+        location.replace('./human.html');
+    </script>
+</body>
+
+</html>
