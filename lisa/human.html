@@ -10,9 +10,22 @@
       2) 每次切换都会走原来的“闪屏”过渡（glitch + 代码窗口拉满后回落）；
       3) 鼠标向右移动 → 换屏幕右半边的表情视频，向左移动 → 换左半边，左右各自轮换；
       4) 鼠标静止 7~16 秒会像原来一样自动换一个表情或回到 setIdle() 随机内容。
-       5) 语音输入（VAD + ASR，实现见 asr.js，纯前端零依赖）：首次点击 / 按键之后自动开麦常听，
+       5) 语音输入（VAD + ASR，实现见 asr.js）：首次点击 / 按键之后自动开麦常听，
           一说话就自动识别、边说边出字，停顿约 0.8s 自动收句；右下角麦克风按钮可随时开 / 关。
           注意：浏览器只在 https 或 http://localhost 下才允许使用麦克风。
+       6) 识别引擎默认是「本机离线」的 Vosk（./vosk/vosk.js + ./vosk/model.vosk，约 49MB）：
+          模型跑在浏览器 WASM 里，**断网也能识别、音频不出本机**；
+          想切回浏览器自带识别（Chrome→Google 云端）就把 asr.js 顶部 CFG.engine 改成 'webspeech'。
+          注意：模型文件**故意不叫 .tar.gz**（叫 .tar.gz 会被 IDM 之类下载管理器拦截，浏览器只能
+          拿到空文件，库就会报 "Folder does not contain model files"，然后一直卡在加载）。
+       7) 识别结果用「对白层（弹幕）」展示：底部升起的白色面板 + 大字号 + 乱码落定 + 闪烁光标，
+          视觉直接复用 main.css 里原站的 .c-lisa_main / .c-lisa-step_dialog / .-show-cursor 光标，
+          逻辑在 asr.js（由 window 的 'lisa-voice' 事件驱动；说过的句子淡一档往上顶，最多留 3 行）。
+       8) 端侧 GPU 小模型（llm.js + ./llm/，WebGPU / WebLLM）：Qwen2.5-0.5B-Instruct q4f16，
+          引擎 6.6MB + WebGPU 计算库 4.6MB + 权重 276MB 全在本地，**断网可用、数据不出本机**；
+          听到你说完一整句就用显卡生成回复，回复以流式打字进入上面的对白层（蓝色）。
+          需要 Chrome / Edge 113+（WebGPU）；模型在显存里约占 950MB，首次编译着色器要十几秒，
+          之后走 IndexedDB 缓存。接口：window.lisaLLM.ask/state/abort/reset，事件 'lisa-llm'。
   · 必须通过本地 HTTP 服务访问（例如 `python -m http.server 8000` 或 `npx serve`）。
     直接双击以 file:// 打开时，浏览器会因 CORS 拦截 .glb / .mp4 / .mp3 / .exr 的加载。
 -->
@@ -362,6 +375,66 @@
             top: 12px;
             opacity: .7
         }
+
+        /* ==================================================================
+           Lisa 对白层（弹幕）
+           直接复用 main.css 里原站的 .c-lisa_main / .c-lisa-step / .c-lisa-step_dialog
+           与 .-show-cursor 的闪烁光标，这里只做必要覆盖：
+           #lisa-say 是 id 选择器，特异性高于 main.css 的类选择器，所以能稳定生效
+           ================================================================== */
+        #lisa-say {
+            position: fixed;
+            inset: auto 0 0 0;
+            width: 100%;
+            max-height: 62vh;
+            z-index: 900;
+            padding: 18px var(--grid-margin) 22px;
+            background-color: var(--color-bg, #fff);
+            color: var(--color, #000);
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+            box-shadow: 0 -18px 60px rgba(0, 0, 0, .16);
+            opacity: 0;
+            transform: translate3d(0, 103%, 0);
+            transition: transform .45s cubic-bezier(.215, .61, .355, 1), opacity .3s ease;
+            pointer-events: none;
+            overflow: auto;
+            -webkit-overflow-scrolling: touch
+        }
+
+        #lisa-say.is-on {
+            opacity: 1;
+            transform: translate3d(0, 0, 0)
+        }
+
+        /* 原站 .c-lisa-step 是「半屏留白 + 断点字号」，这里换成适合弹幕的紧凑排版 */
+        #lisa-say .c-lisa-step {
+            padding: 0;
+            margin: 0;
+            min-height: 0;
+            overflow: visible;
+            --dialog-font-size: clamp(19px, 2.6vw, 32px)
+        }
+
+        /* 一行 = 一句；说过的句子淡一点往上顶，当前这句最亮 */
+        #lisa-say .c-lisa-step_dialog {
+            margin: 0 0 .3em;
+            color: rgba(0, 0, 0, .34);
+            transition: color .25s ease
+        }
+
+        #lisa-say .c-lisa-step_dialog.is-current {
+            color: var(--color, #000)
+        }
+
+        /* 端侧小模型（Lisa）说的话：用蓝色和"你说的"区分开 */
+        #lisa-say .c-lisa-step_dialog.is-lisa {
+            color: #1a73e8
+        }
+
+        #lisa-say .c-lisa-step_dialog:last-child {
+            margin-bottom: 0
+        }
     </style>
 
     <link id="main-css" rel="stylesheet" href="./main.css" media="all"
@@ -384,6 +457,17 @@
             <!-- 环境音：同目录的 ambient.mp3（浏览器会拦截自动播放，首次点击后播放） -->
             <audio id="lisa-ambient" src="ambient.mp3" loop preload="auto"></audio>
 
+            <!-- ======================================================================
+                 Lisa 对白层（弹幕）：视觉完全复用 main.css 里原站的
+                     .c-lisa_main / .c-lisa-step / .c-lisa-step_dialog / .-show-cursor 光标
+                 行为：说话时从屏幕下方升起并实时显示草稿；说完一句用「乱码落定」定格，
+                       停留几秒后收起；最多保留 3 行，新的一行往上顶（弹幕感）。
+                 驱动逻辑在 asr.js 里（由 window 的 'lisa-voice' 事件驱动）
+                 ====================================================================== -->
+            <div class="c-lisa_main" id="lisa-say" aria-live="polite">
+                <div class="c-lisa-step" id="lisa-say-step"></div>
+            </div>
+
             <!-- 3D 人物模型：app.js 里的 LisaVisualizer 模块会把 canvas 挂载到该节点，
                  模型为同目录下的 lisa.glb，环境贴图为 envmap.exr，屏幕视频为 running_code.mp4 -->
             <div class="c-lisa_visualizer" data-module-lisa-visualizer></div>
@@ -402,7 +486,7 @@
             <!-- 语音输入（VAD + ASR，纯前端）：
                  点过 “[CLICK] TO START”（页面首次点击 / 按键）之后自动打开麦克风并进入 VAD 常听状态：
                  一说话就自动开始识别、边说边出字，停顿约 0.8s 自动收句；再点这个按钮可随时关 / 开。
-                 实现全部在 ./asr.js 里（零依赖，不碰 app.js） -->
+                 识别默认走本机离线模型（./vosk/，断网可用），实现全在 ./asr.js 里（不碰 app.js） -->
             <button type="button" id="lisa-voice" class="c-lisa_voice is-off" aria-label="语音输入已关闭"
                 title="语音输入：点击开启">
                 <svg id="lisa-voice-icon" viewBox="0 0 24 24" aria-hidden="true">
@@ -559,6 +643,8 @@
                 box.appendChild(row('app.js（主程序 2.9MB）', res.appJs === 'fail' ? '加载失败' : (res.appJs === 'ok' ? '已加载' : '未完成'), res.appJs === 'fail' ? false : (res.appJs === 'ok' ? true : null)));
                 box.appendChild(row('asr.js（语音输入 VAD+ASR）', res.asr === 'fail' ? '加载失败' : (res.asr === 'ok' ? '已加载' : '未完成'), res.asr === 'fail' ? false : (res.asr === 'ok' ? true : null)));
                 box.appendChild(row('语音识别 API（Web Speech）', (window.SpeechRecognition || window.webkitSpeechRecognition) ? '可用' : '当前浏览器不支持', (window.SpeechRecognition || window.webkitSpeechRecognition) ? true : false));
+                box.appendChild(row('llm.js（端侧 GPU 小模型）', res.llm === 'fail' ? '加载失败' : (res.llm === 'ok' ? '已加载' : '未完成'), res.llm === 'fail' ? false : (res.llm === 'ok' ? true : null)));
+                box.appendChild(row('WebGPU（小模型要用的）', navigator.gpu ? '可用' : '当前浏览器不可用', !!navigator.gpu));
                 box.appendChild(row('three.js 是否已执行', window.__THREE__ ? '是' : '否', window.__THREE__ ? true : false));
                 box.appendChild(row('3D 画布', cv ? (cv.width + '×' + cv.height) : '没有', cv ? true : false));
 
@@ -623,10 +709,17 @@
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.appJs='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.appJs='fail'"></script>
 
-    <!-- 语音输入（VAD + ASR，纯前端）：挂在 app.js 之后，只操作自己的 DOM，不影响 3D 的启动流程 -->
-    <script src="./asr.js" defer
+    <!-- 语音输入（VAD + ASR，纯前端）：挂在 app.js 之后，只操作自己的 DOM，不影响 3D 的启动流程
+         ?v= 这个小版本号是用来破浏览器"启发式缓存"的：脚本一改就把它加一，普通刷新也能拿到新版 -->
+    <script src="./asr.js?v=3" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='fail'"></script>
+
+    <!-- 端侧 GPU 小模型（WebGPU / WebLLM，Qwen2.5-0.5B-Instruct q4f16）：
+         引擎、WebGPU 计算库、模型权重全在 ./llm/ 里，断网可用；听到你说完一整句就用显卡生成回复 -->
+    <script src="./llm.js?v=3" defer
+        onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='ok'"
+        onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='fail'"></script>
 
     <script>
         /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError 和 403，看着像“按钮坏了”）。

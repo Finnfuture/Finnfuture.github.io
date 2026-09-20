@@ -9,8 +9,11 @@
    · 展示：
        右下角（声音按钮正上方）麦克风按钮：静听=麦克风图标，说话=跳动声波，出错=红圈
        屏幕底部居中：实时字幕条（已定稿 = 白色，草稿 = 灰色 + 光标闪烁）
+   · 引擎（CFG.engine，默认 'vosk'）：
+       'vosk'      = 模型跑在本机 WASM 里（./vosk/vosk.js + ./vosk/model.tar.gz）
+                     **断网可用**、音频不出本机，中文小模型约 40MB，流式出字
+       'webspeech' = 浏览器自带识别（Chrome→Google、Edge→微软），必须联网，Firefox 不支持
    · 浏览器要求：
-       Chrome / Edge / iOS Safari 14.5+（Firefox 没有 Web Speech API，会显示提示）
        页面必须在 https 或 http://localhost 下打开，否则浏览器直接拒绝麦克风
        （手机用 http://192.168.x.x:8000 访问就属于这种情况，页面会给出排查提示）
    · 可调参数都在下面的 CFG 里，改完刷新即可，不需要重新打包。
@@ -20,7 +23,21 @@
 
     /* ------------------------------------------------------------------ 可调参数 */
     var CFG = {
-        lang: 'zh-CN',          /* 识别语言 */
+        /* ---- 引擎选择：默认 Vosk 本地离线模型，断网也能识别 ---- */
+        engine: 'vosk',         /* 'vosk'      = 模型跑在本机 WASM 里（要 ./vosk/ 目录，完全离线）
+                                   'webspeech' = 浏览器自带识别（Chrome→Google / Edge→微软，要联网） */
+        voskScript: './vosk/vosk.js',       /* vosk-browser 单文件构建，WASM + Worker 已内联，无需其它文件 */
+        voskModel: './vosk/model.vosk',     /* 中文小模型（约 43MB，就是官方 tar.gz，只是改了扩展名 ——
+                                               叫 .tar.gz 会被 IDM 之类的下载管理器拦截，导致浏览器拿到空文件） */
+        voskSampleRate: 16000,              /* Vosk 模型原生采样率，不要改 */
+
+        /* ---- 对白层（弹幕）：底部升起的面板 + 大字号 + 乱码落定 + 闪烁光标 ---- */
+        sayLayer: true,         /* false = 关掉对白层，改用原来那条小的底部字幕条 */
+        sayScramble: true,      /* 说完一句时用「乱码落定」效果（原站同款）；false = 直接显示 */
+        sayHoldMs: 7000,        /* 说完之后面板停留多久（毫秒）后收起 */
+        sayMaxLines: 3,         /* 面板里最多保留几行，多出来的从上面顶掉 */
+
+        lang: 'zh-CN',          /* 识别语言（webspeech 引擎用；Vosk 中文模型语言固定） */
 
         vadGate: true,          /* true  = VAD 门控：只有检测到人说话才开识别器
                                            （省电、平时不上传音频；代价是句首约 0.2~0.4s 可能丢字）
@@ -47,6 +64,8 @@
     var elFinal = document.getElementById('lisa-voice-final');
     var elDraft = document.getElementById('lisa-voice-draft');
     var elTip = document.getElementById('lisa-voice-tip');
+    var elSay = document.getElementById('lisa-say');
+    var elSayStep = document.getElementById('lisa-say-step');
 
     if (!elBtn || !elBar || !elBars) return;    /* 页面里没有语音 UI 就不干活 */
 
@@ -61,9 +80,10 @@
 
     /* ------------------------------------------------------------------ 状态 */
     var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    var supported = !!Rec;
+    var wsSupported = !!Rec;              /* 浏览器自带 Web Speech API 是否可用（Firefox 没有） */
+    var engineKind = (CFG.engine === 'vosk') ? 'vosk' : 'webspeech';
 
-    var mic = { ctx: null, stream: null, src: null, analyser: null, timeBuf: null, byteBuf: null, freqBuf: null };
+    var mic = { ctx: null, stream: null, src: null, analyser: null, timeBuf: null, byteBuf: null, freqBuf: null, sink: null };
     var vad = {
         noise: -55,          /* 自适应噪声底（dB） */
         level: 0,            /* 平滑后的当前音量（dB） */
@@ -82,7 +102,8 @@
         armed: false,        /* 用户是否已经点过 [CLICK] TO START */
         on: false,           /* 麦克风 + VAD 是否在运行 */
         raf: 0, hidden: false,
-        restartTO: 0, captionTO: 0, starting: null
+        restartTO: 0, captionTO: 0, starting: null,
+        hint: ''             /* 字幕条上临时显示的提示（例如“正在加载离线语音模型…”） */
     };
     var hist = { prev: '' };   /* 上一句（字幕条里那一行浅色文字） */
 
@@ -149,12 +170,14 @@
     }
 
     function renderCaption() {
-        var has = !!(asr.finalText || asr.draft || hist.prev);
-        elPrev.textContent = hist.prev || '';
-        elPrev.style.display = hist.prev ? 'block' : 'none';
+        var has = !!(asr.finalText || asr.draft || hist.prev || voice.hint);
+        var prev = voice.hint || hist.prev || '';
+        elPrev.textContent = prev;
+        elPrev.style.display = prev ? 'block' : 'none';
         elFinal.textContent = asr.finalText;
         elDraft.textContent = asr.draft;
-        if (has) elBar.classList.add('is-show'); else elBar.classList.remove('is-show');
+        if (has && !CFG.sayLayer) elBar.classList.add('is-show');
+        else if (!has) elBar.classList.remove('is-show');
     }
 
     function holdCaption() {
@@ -166,6 +189,136 @@
             renderCaption();
         }, CFG.captionHoldMs);
     }
+
+    /* ------------------------------------------------------------------ 对白层（弹幕）
+       视觉复用原站 main.css 的 .c-lisa_main / .c-lisa-step_dialog：
+         · 一开口：面板从屏幕下方升起，实时显示草稿（不加特效，免得抖动）
+         · 说完一句：用「乱码落定」定格该句 + 闪烁光标，停留 sayHoldMs 后收起
+         · 最多保留 sayMaxLines 行，新的一句往上顶（弹幕感）
+       数据源就是 window 的 'lisa-voice' 事件，和小的字幕条同源，所以两个引擎都能用。 */
+    var say = { timer: 0 };
+
+    /* 取当前「还在说」的那一行；没有就新建一行（老行降级成历史样式）
+       source: 'user' = 你说的，'lisa' = 端侧小模型生成的回复（样式上会区分） */
+    function sayLine(source) {
+        if (!elSayStep) return null;
+        source = source || 'user';
+        var last = elSayStep.lastElementChild;
+        if (last && last.__live && (last.__source || 'user') === source) return last;
+        var lines = elSayStep.children, i;
+        for (i = 0; i < lines.length; i++) {
+            lines[i].__live = false;
+            lines[i].classList.remove('-show-cursor', 'is-current');
+        }
+        var line = document.createElement('div');
+        line.className = 'c-lisa-step_dialog -show-cursor is-current' + (source === 'lisa' ? ' is-lisa' : '');
+        line.__live = true;
+        line.__source = source;
+        line.appendChild(document.createElement('span'));
+        elSayStep.appendChild(line);
+        while (elSayStep.children.length > CFG.sayMaxLines) {
+            elSayStep.removeChild(elSayStep.firstElementChild);
+        }
+        return line;
+    }
+
+    function sayShow() {
+        if (!CFG.sayLayer) return;
+        if (elSay) elSay.classList.add('is-on');
+        elBar.classList.remove('is-show');       /* 让原来那条小字幕避开，别叠在一起 */
+    }
+
+    /* 乱码落定（原站 scrambleText 的味道）：字一个接一个定下来，后面的先乱跳
+       每行各自持有动画句柄，所以连着说好几句话时前面那句也能自己落定完 */
+    function sayScramble(line, span, text) {
+        var chars = 'abcdefghijklmnopqrstuvwxyz0123456789#%&*+=/<>';
+        var t0 = nowMs(), dur = Math.min(1100, 180 + text.length * 45), done = false;
+        if (line.__raf) {
+            if (window.cancelAnimationFrame) cancelAnimationFrame(line.__raf);
+            else clearTimeout(line.__raf);
+            line.__raf = 0;
+        }
+        if (line.__to) { window.clearTimeout(line.__to); line.__to = 0; }
+        function finish() {
+            if (done) return;
+            done = true;
+            span.textContent = text;
+            if (line.__raf) {
+                if (window.cancelAnimationFrame) cancelAnimationFrame(line.__raf);
+                else clearTimeout(line.__raf);
+                line.__raf = 0;
+            }
+            if (line.__to) { window.clearTimeout(line.__to); line.__to = 0; }
+        }
+        function frame() {
+            if (done) return;
+            var p = Math.min(1, (nowMs() - t0) / dur);
+            if (p >= 1) { finish(); return; }
+            var n = Math.floor(p * text.length), out = text.slice(0, n), i;
+            for (i = n; i < text.length; i++) out += chars.charAt(Math.floor(Math.random() * chars.length));
+            span.textContent = out;
+            line.__raf = window.requestAnimationFrame ? requestAnimationFrame(frame) : window.setTimeout(frame, 40);
+        }
+        frame();
+        /* 兜底：标签页被切到后台时 rAF 会停，这里保证时间到了照样定格 */
+        line.__to = window.setTimeout(finish, dur + 160);
+    }
+
+    /* 正在说的内容（草稿）：直接刷新，不打断这一行正在跑的落定动画 */
+    function sayDraft(text, source) {
+        if (!CFG.sayLayer || !elSayStep || !text) return;
+        var line = sayLine(source);
+        if (!line) return;
+        if (!line.__raf) {
+            var span = line.getElementsByTagName('span')[0];
+            if (span) span.textContent = text;
+        }
+        sayShow();
+        window.clearTimeout(say.timer);
+    }
+
+    /* 一整句说完：落定 + 光标 + 停留后收起 */
+    function sayUtterance(text, source) {
+        if (!CFG.sayLayer || !elSayStep || !text) return;
+        var line = sayLine(source);
+        if (!line) return;
+        var span = line.getElementsByTagName('span')[0];
+        sayShow();
+        if (CFG.sayScramble && span) sayScramble(line, span, text);
+        else if (span) span.textContent = text;
+        line.__live = false;                     /* 这句定型了，下一句会另起一行 */
+        window.clearTimeout(say.timer);
+        say.timer = window.setTimeout(function () {
+            if (elSay) elSay.classList.remove('is-on');
+        }, CFG.sayHoldMs);
+    }
+
+    function sayReset() {
+        window.clearTimeout(say.timer);
+        if (elSayStep) {
+            var lines = elSayStep.children, i;
+            for (i = 0; i < lines.length; i++) {
+                if (lines[i].__raf) {
+                    if (window.cancelAnimationFrame) cancelAnimationFrame(lines[i].__raf);
+                    else clearTimeout(lines[i].__raf);
+                }
+                if (lines[i].__to) window.clearTimeout(lines[i].__to);
+            }
+            elSayStep.innerHTML = '';
+        }
+        if (elSay) elSay.classList.remove('is-on');
+    }
+
+    /* 页面里没有对白层 DOM 就自动退回短片字幕模式 */
+    if (!elSayStep) CFG.sayLayer = false;
+
+    window.addEventListener('lisa-voice', function (e) {
+        var d = e.detail || {};
+        if (d.type === 'partial') sayDraft(d.text, 'user');
+        else if (d.type === 'utterance') sayUtterance(d.text, 'user');
+        else if (d.type === 'say-partial') sayDraft(d.text, 'lisa');      /* 端侧小模型流式打字 */
+        else if (d.type === 'say') sayUtterance(d.text, 'lisa');          /* 端侧小模型整句落定 */
+    });
     /* ------------------------------------------------------------------ VAD：麦克风 + 能量检测 */
     function audioSupported() {
         return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia &&
@@ -194,7 +347,15 @@
         }
 
         setState('load');
-        mic.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var AC = window.AudioContext || window.webkitAudioContext;
+        mic.ctx = null;
+        if (engineKind === 'vosk') {
+            /* Vosk 模型原生 16k，直接按 16k 采集（浏览器内部做高质量重采样）；
+               老浏览器不支持指定采样率时会拿到默认 48k，后面 feedPcm 里再补一次线性重采样 */
+            try { mic.ctx = new AC({ sampleRate: CFG.voskSampleRate, latencyHint: 'interactive' }); }
+            catch (e) { mic.ctx = null; }
+        }
+        if (!mic.ctx) mic.ctx = new AC();
         if (mic.ctx.resume) { try { mic.ctx.resume(); } catch (e) { } }
 
         return navigator.mediaDevices.getUserMedia({
@@ -219,7 +380,7 @@
             vad.level = 0;
             vad.aboveAt = vad.belowAt = vad.preAt = 0;
             vad.preStarted = false;
-            setState(supported ? 'wait' : 'bad');
+            setState((wsSupported || engineKind === 'vosk') ? 'wait' : 'bad');
             hideTip();
             loop();
             return true;
@@ -247,7 +408,7 @@
         window.clearTimeout(voice.restartTO);
         if (mic.stream) { try { mic.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) { } }
         if (mic.ctx && mic.ctx.close) { try { mic.ctx.close(); } catch (e) { } }
-        mic.ctx = mic.stream = mic.src = mic.analyser = null;
+        mic.ctx = mic.stream = mic.src = mic.analyser = mic.sink = null;
         vad.speaking = false;
         vad.preStarted = false;
         vad.aboveAt = vad.belowAt = vad.preAt = 0;
@@ -285,32 +446,40 @@
         if (!vad.preStarted && !vad.speaking && vad.aboveAt && (t - vad.aboveAt) >= CFG.preStartMs) {
             vad.preStarted = true;
             vad.preAt = t;
-            if (CFG.vadGate && !asr.running) startRecognizer();
+            if (engineKind === 'webspeech' && CFG.vadGate && !asr.running) startRecognizer();
         }
 
         /* ② 确认在说话 */
         if (!vad.speaking && vad.aboveAt && (t - vad.aboveAt) >= CFG.minSpeechMs) {
             vad.speaking = true;
             window.clearTimeout(voice.captionTO);
-            if (!asr.running) startRecognizer();      /* 常开模式本来就该在跑 */
+            if (engineKind === 'webspeech' && !asr.running) startRecognizer();   /* 常开模式本来就该在跑 */
             setState('speak');
-            elBar.classList.add('is-show');
+            sayShow();                               /* 一开口就把对白层升起来（还没出字时只有光标） */
+            if (!CFG.sayLayer) elBar.classList.add('is-show');
         }
 
         /* ③ 误触发：提前启动之后一直没确认为“说话”，把识别器停掉 */
         if (!vad.speaking && vad.preStarted && vad.preAt && (t - vad.preAt) > CFG.preStartGiveUpMs) {
             vad.preStarted = false;
-            if (CFG.vadGate) { if (asr.running) stopRecognizer(); }
-            else if (asr.draft) { asr.draft = ''; renderCaption(); }
+            if (engineKind === 'webspeech') {        /* Vosk 是常驻流式，不存在“提前启动”这回事 */
+                if (CFG.vadGate) { if (asr.running) stopRecognizer(); }
+                else if (asr.draft) { asr.draft = ''; renderCaption(); }
+            }
         }
 
         /* ④ 停顿够久 -> 收句 */
         if (vad.speaking && vad.belowAt && (t - vad.belowAt) >= CFG.hangMs) {
             vad.speaking = false;
             vad.preStarted = false;
-            if (CFG.vadGate && asr.running) stopRecognizer();   /* 让它 flush 出最终结果（onend 里提交） */
-            else commitUtterance();                             /* 常开模式：直接提交当前这一句 */
-            holdCaption();
+            if (engineKind === 'vosk') {
+                /* Vosk 自己按静音断句（result 事件里已经提交过），这里只收 UI 状态 */
+                holdCaption();
+            } else if (CFG.vadGate && asr.running) {
+                stopRecognizer();          /* 让它 flush 出最终结果（onend 里提交） */
+            } else {
+                commitUtterance();         /* 常开模式：直接提交当前这一句 */
+            }
             setState(voice.on ? 'wait' : 'off');
         }
 
@@ -439,7 +608,7 @@
     }
 
     function startRecognizer() {
-        if (!supported || asr.hardFail || !voice.on || asr.running || asr.starting) return;
+        if (engineKind !== 'webspeech' || !wsSupported || asr.hardFail || !voice.on || asr.running || asr.starting) return;
         if (!asr.rec) asr.rec = buildRecognizer();
         if (!asr.rec) return;
         asr.wantRun = true;
@@ -455,6 +624,204 @@
         asr.wantRun = false;
         if (!asr.rec || !asr.running) { commitUtterance(); return; }
         try { asr.rec.stop(); } catch (e) { commitUtterance(); }
+    }
+
+    /* ==================================================================================
+       引擎二：Vosk 本地离线识别 —— 模型跑在本机 WASM 里，断网可用、音频不出本机
+         ./vosk/vosk.js      = vosk-browser 的单文件构建（WASM + Worker 都内联在里面）
+         ./vosk/model.tar.gz = 中文小模型（约 40MB），本地文件，不需要网络
+       流程：动态加载 vosk.js -> Vosk.createModel() -> KaldiRecognizer(16000)
+             麦克风流 -> AudioWorklet（每 4096 个采样）-> acceptWaveformFloat()
+       ================================================================================== */
+    var vosk = { lib: null, model: null, rec: null, node: null, loading: null, tapPending: false };
+
+    /* Vosk 中文模型会把字拆开（"你 好 世 界"），这里把中文字之间的空格去掉 */
+    function tidy(text) {
+        text = String(text || '').replace(/\s+/g, ' ').trim();
+        return text.replace(/([\u4e00-\u9fa5])\s+(?=[\u4e00-\u9fa5])/g, '$1');
+    }
+
+    /* 采集采样率不是 16k 时做一次线性插值重采样（AudioContext 支持指定 16k，一般用不到） */
+    function resample(f32, from, to) {
+        var ratio = to / from;
+        var out = new Float32Array(Math.max(1, Math.round(f32.length * ratio)));
+        var last = f32.length - 1;
+        for (var i = 0; i < out.length; i++) {
+            var x = i / ratio, i0 = Math.floor(x);
+            var i1 = i0 + 1 > last ? last : i0 + 1;
+            out[i] = f32[i0] + (f32[i1] - f32[i0]) * (x - i0);
+        }
+        return out;
+    }
+
+    function loadScript(src) {
+        return new Promise(function (resolve, reject) {
+            var s = document.createElement('script');
+            s.src = src;
+            s.onload = function () { resolve(); };
+            s.onerror = function () { reject(new Error('加载失败 ' + src)); };
+            document.head.appendChild(s);
+        });
+    }
+
+    /* 加载 vosk.js + 模型（共用同一个 Promise，重复调用不会重复加载） */
+    function loadVosk() {
+        if (vosk.loading) return vosk.loading;
+        vosk.loading = Promise.resolve()
+            .then(function () {
+                if (window.Vosk) return window.Vosk;
+                return loadScript(CFG.voskScript).then(function () {
+                    if (!window.Vosk) throw new Error('vosk.js 已加载但没拿到 Vosk 对象');
+                    return window.Vosk;
+                });
+            })
+            .then(function (lib) {
+                vosk.lib = lib;
+                return lib.createModel(CFG.voskModel);     /* 40MB 本地文件，首次解包几秒 */
+            })
+            .then(function (model) {
+                vosk.model = model;
+                return model;
+            })
+            .catch(function (e) {
+                vosk.loading = null;                        /* 失败允许重试 */
+                throw e;
+            });
+        return vosk.loading;
+    }
+
+    function startVoskRecognizer() {
+        if (vosk.rec || !vosk.model || !mic.ctx) return;
+        vosk.rec = new vosk.model.KaldiRecognizer(CFG.voskSampleRate);
+
+        /* 一整句（Vosk 自己按静音断句，不需要我们切） */
+        vosk.rec.on('result', function (m) {
+            var t = tidy(m && m.result && m.result.text);
+            if (!t) return;
+            if (asr.committed) { asr.committed = false; asr.finalText = ''; }
+            asr.finalText = t;
+            asr.draft = '';
+            commitUtterance();
+            if (voice.on) setState('wait');
+        });
+
+        /* 正在说的这一句（草稿，会反复刷新） */
+        vosk.rec.on('partialresult', function (m) {
+            var t = tidy(m && m.result && m.result.partial);
+            if (asr.committed && t) { asr.committed = false; asr.finalText = ''; }
+            asr.draft = t;
+            window.clearTimeout(voice.captionTO);
+            if (t) elBar.classList.add('is-show');
+            renderCaption();
+            emit('partial', { text: t, draft: true });
+        });
+
+        attachAudioTap();
+    }
+
+    /* 把麦克风数据抽出来喂给 Vosk：优先 AudioWorklet（独立线程），老内核退回 ScriptProcessor */
+    function attachAudioTap() {
+        if (vosk.node || vosk.tapPending || !mic.ctx || !mic.src) return;
+
+        /* 静音出口：音频图要有下游才会被驱动；gain = 0 所以不会有任何声音/回授 */
+        if (!mic.sink) {
+            mic.sink = mic.ctx.createGain();
+            mic.sink.gain.value = 0;
+            mic.sink.connect(mic.ctx.destination);
+        }
+
+        var code =
+            'class LisaTap extends AudioWorkletProcessor{' +
+            'constructor(){super();this.b=new Float32Array(4096);this.n=0;}' +
+            'process(inputs){var c=inputs[0]&&inputs[0][0];' +
+            'if(c){for(var i=0;i<c.length;i++){this.b[this.n++]=c[i];' +
+            'if(this.n>=4096){this.port.postMessage(this.b.slice(0));this.n=0;}}}return true;}}' +
+            'registerProcessor("lisa-tap",LisaTap);';
+
+        function viaScriptProcessor() {
+            var SP = mic.ctx.createScriptProcessor || mic.ctx.createJavaScriptNode;
+            if (!SP) return;
+            var sp = SP.call(mic.ctx, 4096, 1, 1);
+            sp.onaudioprocess = function (e) { feedPcm(e.inputBuffer.getChannelData(0)); };
+            mic.src.connect(sp);
+            sp.connect(mic.sink);
+            vosk.node = sp;
+        }
+
+        if (mic.ctx.audioWorklet && window.AudioWorkletNode && window.Blob && window.URL && URL.createObjectURL) {
+            /* addModule 是异步的：期间再进来一次就会重复注册同名 processor
+               （报 "An AudioWorkletProcessor with name lisa-tap is already registered"），用标志挡住 */
+            vosk.tapPending = true;
+            var url = URL.createObjectURL(new Blob([code], { type: 'application/javascript' }));
+            mic.ctx.audioWorklet.addModule(url).then(function () {
+                vosk.tapPending = false;
+                if (!mic.ctx || vosk.node) return;
+                var node = new AudioWorkletNode(mic.ctx, 'lisa-tap');
+                node.port.onmessage = function (e) { feedPcm(e.data); };
+                mic.src.connect(node);
+                node.connect(mic.sink);
+                vosk.node = node;
+                try { URL.revokeObjectURL(url); } catch (e) { }
+            }, function () { vosk.tapPending = false; viaScriptProcessor(); });
+        } else {
+            viaScriptProcessor();
+        }
+    }
+
+    function feedPcm(f32) {
+        if (!vosk.rec || !f32 || !f32.length) return;
+        var rate = mic.ctx ? mic.ctx.sampleRate : CFG.voskSampleRate;
+        var data = f32;
+        if (Math.abs(rate - CFG.voskSampleRate) > 1) {
+            data = resample(f32, rate, CFG.voskSampleRate);
+            rate = CFG.voskSampleRate;
+        }
+        try {
+            vosk.rec.acceptWaveformFloat(data, rate);
+        } catch (e) {
+            console.warn('[voice] acceptWaveformFloat 失败', e);
+        }
+    }
+
+    /* 关麦：把采集节点拆掉（模型留在内存，下次开麦秒起；要彻底释放用 lisaVoice.unloadModel()） */
+    function stopVoskTap() {
+        vosk.tapPending = false;
+        if (vosk.node) {
+            if (vosk.node.port) vosk.node.port.onmessage = null;
+            if (vosk.node.onaudioprocess) vosk.node.onaudioprocess = null;
+            try { vosk.node.disconnect(); } catch (e) { }
+            vosk.node = null;
+        }
+        if (mic.sink) { try { mic.sink.disconnect(); } catch (e) { } mic.sink = null; }
+        if (vosk.rec) { try { vosk.rec.remove(); } catch (e) { } vosk.rec = null; }
+    }
+
+    /* 彻底释放模型内存（约 100MB+），下次开麦会重新加载 */
+    function unloadVoskModel() {
+        stopVoskTap();
+        if (vosk.model) { try { vosk.model.terminate(); } catch (e) { } vosk.model = null; }
+        vosk.loading = null;
+    }
+
+    /* 加载模型 -> 起识别（第一次点开麦会走这里，之后就很快了） */
+    function startVoskEngine() {
+        if (vosk.rec) { setState('wait'); return; }
+        voice.hint = '正在加载离线语音模型…';
+        setState('load');
+        renderCaption();
+        loadVosk().then(function () {
+            voice.hint = '';
+            if (!voice.on) { renderCaption(); return; }
+            startVoskRecognizer();
+            setState('wait');
+            renderCaption();
+        }, function (err) {
+            voice.hint = '';
+            renderCaption();
+            fail('离线语音模型加载失败',
+                '确认 <code>./vosk/vosk.js</code> 和 <code>./vosk/model.tar.gz</code> 都在，并且用本地 HTTP 服务打开（不要 file://）。<br>错误：' +
+                ((err && err.message) || String(err)));
+        });
     }
 
     /* 收句入库：一句说完后把它提交出来（字幕、回调、window 事件都会拿到） */
@@ -484,10 +851,10 @@
     /* ------------------------------------------------------------------ 开 / 关 */
     function enable() {
         hideTip();
-        if (!supported) {
+        if (engineKind === 'webspeech' && !wsSupported) {
             fail('当前浏览器不支持语音识别',
                 'Web Speech API 只有 Chrome / Edge / iOS Safari 14.5+ 才有（Firefox 没有实现）。' +
-                '换个浏览器打开即可；想要离线可用就得换 Vosk / Whisper 那类 WASM 本地模型。');
+                '把 asr.js 顶部 CFG.engine 改成 \'vosk\' 就能用本机离线模型，不挑浏览器。');
             return;
         }
         startMic().then(function (ok) {
@@ -495,8 +862,9 @@
             voice.userOff = false;
             asr.hardFail = false;
             asr.netFails = 0;
-            if (CFG.vadGate) setState('wait');     /* 门控：等 VAD 听到人声再开识别器 */
-            else startRecognizer();                /* 常开：立刻开识别器 */
+            if (engineKind === 'vosk') startVoskEngine();   /* 离线引擎：加载模型 -> 常听 */
+            else if (CFG.vadGate) setState('wait');         /* 云端：等 VAD 听到人声再开识别器 */
+            else startRecognizer();                         /* 云端常开：立刻开识别器 */
         });
     }
 
@@ -508,9 +876,12 @@
         asr.starting = false;
         if (asr.rec && asr.running) { try { asr.rec.abort(); } catch (e) { } }
         asr.running = false;
+        stopVoskTap();                    /* 拆掉 Vosk 的采集节点（模型留在内存，下次开麦秒起） */
+        sayReset();                       /* 收起对白层并清掉历史行 */
         asr.finalText = asr.draft = '';
         asr.committed = false;
         hist.prev = voice.lastText = '';
+        voice.hint = '';
         stopMic();
         renderCaption();
         setState('off');
@@ -545,6 +916,7 @@
         if (voice.hidden) {
             asr.wantRun = false;
             if (asr.rec && asr.running) { try { asr.rec.abort(); } catch (e) { } }
+            if (engineKind === 'vosk') stopVoskTap();       /* 切后台就不吃音频、不做推理，省电 */
             return;
         }
         if (voice.armed && voice.on && !voice.userOff && !asr.hardFail) {
@@ -553,7 +925,9 @@
             vad.speaking = false;
             vad.preStarted = false;
             vad.level = 0;
-            if (CFG.vadGate) setState('wait'); else startRecognizer();
+            if (engineKind === 'vosk') startVoskEngine();   /* 模型已加载时属于秒起 */
+            else if (CFG.vadGate) setState('wait');
+            else startRecognizer();
         }
     });
 
@@ -563,7 +937,9 @@
        拿到 text 之后想接大模型 / 让 Lisa 换表情 / 打开某个页面，都从这里接即可。 */
     window.lisaVoice = {
         config: CFG,
-        supported: supported,
+        supported: wsSupported,
+        engine: engineKind,
+        wsSupported: wsSupported,
         enable: enable,
         disable: disable,
         toggle: function () { if (voice.on) disable(); else enable(); },
@@ -577,10 +953,13 @@
             var i = listeners.indexOf(cb);
             if (i >= 0) listeners.splice(i, 1);
         },
+        unloadModel: unloadVoskModel,     /* 释放离线模型占的内存（下次开麦会重新加载） */
         state: function () {
             return {
                 armed: voice.armed, on: voice.on, hidden: voice.hidden,
-                speaking: !!vad.speaking, recognizing: asr.running,
+                engine: engineKind, voskReady: !!vosk.model,
+                speaking: !!vad.speaking,
+                recognizing: engineKind === 'vosk' ? !!vosk.rec : asr.running,
                 levelDb: Math.round(vad.level), noiseDb: Math.round(vad.noise),
                 last: voice.lastText || '', draft: asr.draft || ''
             };
@@ -591,7 +970,8 @@
     voice.userOff = false;
     voice.hidden = !!document.hidden;
     setState('off');
-    console.log('[voice] VAD + ASR 已就绪（' + (supported ? '本浏览器支持 Web Speech API' : '本浏览器不支持 Web Speech API，只能做 VAD') +
+    console.log('[voice] VAD + ASR 已就绪（引擎: ' + engineKind +
+        (engineKind === 'vosk' ? '（本机离线模型，断网可用）' : (wsSupported ? '，本浏览器支持 Web Speech API' : '，但本浏览器没有 Web Speech API')) +
         '）；点页面任意处（[CLICK] TO START）之后会自动开始监听。');
 })();
 

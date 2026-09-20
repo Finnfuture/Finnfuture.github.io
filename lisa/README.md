@@ -17,7 +17,13 @@
 | `app.js` | 主程序（three.js r165 + GSAP + hls.js 打包体） | 打了表情控制器补丁 |
 | `main.css` | 站点样式（含 CSS 变量、`.c-lisa*` 全部样式、字体） | 原样未改 |
 | `vendors.js` | 兼容性垫片（focus-visible、clipboard 等） | 原样 |
-| `asr.js` | **语音输入（VAD + ASR）**：麦克风音量检测 + 浏览器流式语音识别 | 本次新增，纯前端零依赖，见第 3.4 节 |
+| `asr.js` | **语音输入（VAD + ASR）**：麦克风音量检测 + 语音识别（默认本机离线 Vosk） | 本次新增，纯前端零依赖，见第 3.4 节 |
+| `vosk/vosk.js` | **离线识别引擎**（vosk-browser 单文件构建，WASM + Worker 已内联） | 5.8 MB，本地文件 |
+| `vosk/model.vosk` | **中文语音模型**（= 官方 `vosk-model-small-cn-0.22.tar.gz`，只改了扩展名） | 43.9 MB，本地文件；叫 `.tar.gz` 会被 IDM 拦截，故改名 |
+| `llm.js` | **端侧 GPU 小模型**（WebGPU / WebLLM）：听到你说完一整句就用显卡生成回复 | 本次新增，见第 3.5 节 |
+| `llm/web-llm.js` | WebLLM 引擎（MLC 的浏览器端推理库，ESM） | 6.6 MB，本地文件 |
+| `llm/Qwen2-0.5B-…-webgpu.wasm` | 该模型对应的 WebGPU 计算库 | 4.6 MB，本地文件 |
+| `llm/models/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/v2/` | 模型权重（q4f16 量化，14 个分片） | 276 MB，本地文件；**`resolve/<段>` 这层是 WebLLM 的规则，别删** |
 | `lisa.glb` | **人物模型**（2.9 MB） | 网页加载 `./lisa.glb` |
 | `envmap.exr` | 环境贴图（HDR） | 网页加载 `./envmap.exr` |
 | `running_code.mp4` | 屏幕上的「代码窗口」贴图视频（闪屏用） | 本地文件 |
@@ -51,6 +57,7 @@ npx serve -l 8000
     #preloader（空壳，无任何 Logo，启动后被 app.js 移除）
     main > .c-lisa.is-compact
         ├─ <audio id="lisa-ambient" src="./ambient.mp3" loop>
+        ├─ <div class="c-lisa_main" id="lisa-say">                        ← 对白层（弹幕）：复用原站 .c-lisa_main 样式
         ├─ <div class="c-lisa_visualizer" data-module-lisa-visualizer>   ← 3D 画布挂载点
         ├─ <button class="c-lisa_sound" id="lisa-sound">                  ← 声音开关
         ├─ <button class="c-lisa_voice" id="lisa-voice">                  ← 语音输入开关（说话时图标变声波）
@@ -81,6 +88,7 @@ npx serve -l 8000
 | 点击模型画面 | 人物做一次「后仰」动作（原站 `We.click()` → `moveBack()`） |
 | 右下角声音按钮 | 当前没声音 → 点它开始播放；正在响 → 点它静音（状态记忆在 `localStorage['lisa-muted']`） |
 | **语音输入（VAD + ASR）** | 点过 `[CLICK] TO START` 之后**自动开麦常听**：一说话就自动识别、边说边出字，停顿 ≈0.8s 自动收句；右下角麦克风按钮可随时开 / 关（详见第 3.4 节） |
+| **语音结果展示（对白层 / 弹幕）** | 一开口：底部白色面板升起并实时显示草稿；说完一句：用「乱码落定」定格 + 闪烁光标，停留 ≈7s 后收起；最多保留 3 行，新的一句把旧的往上顶（详见第 3.4 节） |
 
 ---
 
@@ -169,37 +177,106 @@ var LISA_GLITCH_OFF = { screenGlitchFrequency: .05, screenGlitchIntensity: 0, di
   - `start()` 里先把 `audio.muted = false` 强制解开（防止元素级静音卡死）；
   - 一旦 `play()` 被浏览器拦下，会打印 `[sound] play() 被浏览器拦截：NotAllowedError`，并在**下一次点击/按键**自动重试（点在按钮上的手势会跳过，避免与按钮自身切换抢跑）。
 
-### 3.4 `asr.js`（本次新增）：语音输入 = VAD + ASR，纯前端零依赖
+### 3.4 `asr.js` + `vosk/`（本次新增）：语音输入 = VAD + ASR，**默认本机离线**、零依赖
 
-本页没有后端、也没有构建工具，所以全部用浏览器自带能力实现，**一行都没改 `app.js`**：
+本页没有后端、也没有构建工具，全部用浏览器能力 + 本地 WASM 实现，**一行都没改 `app.js`**：
 
 | 环节 | 用什么 | 说明 |
 |---|---|---|
-| **VAD** | `getUserMedia` + `AudioContext` + `AnalyserNode` | 每帧取时域数据算 RMS → dB，再用「自适应噪声底 + SNR 阈值 + 悬挂时间」判断人声区间（自己写的，不引第三方库） |
-| **ASR** | `SpeechRecognition` / `webkitSpeechRecognition` | `continuous = true` + `interimResults = true`，是**流式**的：草稿（`isFinal = false`）反复刷新，定稿（`isFinal = true`）一次性追加 |
-| **展示** | `human.html` 里新增的 DOM | 右下角麦克风按钮（说话时图标换成 4 根跳动声波）+ 底部居中字幕（上一句浅色、定稿白色、草稿灰色 + 闪烁光标） |
+| **VAD** | `getUserMedia` + `AudioContext` + `AnalyserNode` | 每帧取时域数据算 RMS → dB，用「自适应噪声底 + SNR 阈值 + 悬挂时间」判断人声区间（自己写的，不引第三方库）；按钮上那 4 根声波柱就是它的输出 |
+| **ASR（默认）** | `vosk/vosk.js` + `vosk/model.vosk` | **中文小模型跑在本机 WASM 里**（5.8MB 引擎 + 43.9MB 模型，都是本地文件）：断网可用、音频不出本机，**流式出字** |
+| **ASR（可选）** | `SpeechRecognition` / `webkitSpeechRecognition` | 浏览器自带识别（Chrome→Google、Edge→微软）要联网；`continuous = true` + `interimResults = true` |
+| **展示** | `human.html` 里新增的 DOM | 右下角麦克风按钮（说话时图标换成 4 根跳动声波 + 脉冲光圈）+ 底部居中字幕（上一句浅色、定稿白色、草稿灰色 + 闪烁光标）+ 只在出错时出现的顶部提示条 |
 
-**触发链路**：`[CLICK] TO START`（首次 `pointerdown` / `keydown`）→ 400ms 后自动 `getUserMedia` 开麦 → 进入 VAD 常听 → 能量持续超阈值 **80ms** 就提前启动识别器（抵消识别器 0.2~0.4s 的启动延迟）→ 持续 **150ms** 判定「正在说话」→ 静音 **800ms** 判定「说完了」→ 调 `recognition.stop()` 让浏览器把最后一段 flush 成定稿 → 在 `onend` 里提交整句（写进字幕 + 派发事件）。
+**触发链路**：`[CLICK] TO START`（首次 `pointerdown` / `keydown`，用捕获阶段抢在 `app.js` 之前）→ 400ms 后自动 `getUserMedia` 开麦 → 进入 VAD 常听：
 
-**默认是「VAD 门控」模式**（`CFG.vadGate = true`）：平时识别器是关着的，只有检测到有人说话才开 —— 省电，也不会把环境音一直传到云端。想改成「识别器常开」（不丢句首那一两个字，代价是环境音会被持续上传）就把 `CFG.vadGate` 改成 `false`。
+- **Vosk 模式（默认）**：首次加载模型（本地文件，实测 **1~2 秒**，之后走 IndexedDB 缓存秒起）→ `new model.KaldiRecognizer(16000)` → `AudioWorklet` 每攒够 4096 个采样就 `acceptWaveformFloat()` 喂一次；**断句由 Vosk 自己按静音完成**（`result` = 整句、`partialresult` = 正在说的草稿）。为了省电与隐私，VAD 只负责 UI 状态与声波，不门控识别器。
+- **Web Speech 模式**（把 `CFG.engine` 改成 `'webspeech'`）：能量超阈值 **80ms** 提前启动识别器（抵消它 0.2~0.4s 的启动延迟）→ 持续 **150ms** 判定「正在说话」→ 静音 **800ms** 调 `recognition.stop()` 让它 flush 成定稿 → 在 `onend` 里提交整句。该模式下可用 `CFG.vadGate` 决定「VAD 门控」（省电）还是「识别器常开」（不丢句首）。
+
+**离线原理**：Vosk = Kaldi 的 WASM 编译版。`vosk/vosk.js` 是单文件构建（**WASM 与 Worker 都内联在这一个文件里**，不需要其它资源），`vosk/model.vosk` 就是官方 `vosk-model-small-cn-0.22.tar.gz`（**只改了扩展名**）。worker 会把模型解包进 emscripten 虚拟文件系统并**挂载 IndexedDB 缓存**，所以第二次开麦是秒起。
+
+> ⚠️ **千万别把 `vosk/model.vosk` 改回 `.tar.gz`**：IDM 之类的下载管理器会把 `.tar.gz` 当下载链接截走，worker 里只能拿到空文件，于是报
+> `ERROR (VoskAPI:Model():src/model.cc:122) Folder '…' does not contain model files`，并一直卡在加载。
+> （本次就是踩了这个坑：解包在 **7ms** 内"完成"、目录为空 —— 排查过程见第 6 节）
+
+#### 对白层（弹幕）—— 直接复用原站样式
+
+原站"Lisa 说话"的那块界面就是 `main.css` 里的 `.c-lisa_main`（从屏幕下方升起的白色圆角面板）+ `.c-lisa-step_dialog`（大字号对白）+ `.-show-cursor`（`lisaCursor` 闪烁光标）。本页**没有重写这套样式**，而是直接用原站类名，只在 `human.html` 里补了几条 `#lisa-say` 覆盖（id 特异性高于 `main.css` 的类选择器，稳定生效）：
+
+```html
+<div class="c-lisa_main" id="lisa-say">
+    <div class="c-lisa-step" id="lisa-say-step"></div>   <!-- 每句一个 .c-lisa-step_dialog -->
+</div>
+```
+
+行为（驱动逻辑在 `asr.js`，数据源就是 `window` 的 `'lisa-voice'` 事件，所以两个引擎都适用）：
+
+| 时机 | 表现 |
+|---|---|
+| 一开口（VAD 判定「正在说话」） | 面板从屏幕下方升起（`is-on`），光标闪，等识别结果 |
+| 实时草稿（`partial`） | 当前行文字直接刷新（不加特效，免得抖动） |
+| 一句说完（`utterance`） | 当前行做**乱码落定**（随机字符逐个定下来，≈0.2~1.1s），光标闪烁，该行定型为「当前句」 |
+| 继续说 | 新的一句另起一行；说过的行降为历史样式（淡一档、无光标），多的被顶掉，最多 `sayMaxLines` 行 |
+| 停留 `sayHoldMs`（默认 7s） | 面板滑回屏幕外；再说话会重新升起 |
+| 关掉麦克风 | 面板收起并清空历史行（`sayReset()`） |
+
+想改成"不要弹幕、只用原来那条小字幕"，把 `CFG.sayLayer` 改成 `false` 即可（`#lisa-voice-bar` 小字幕会重新启用）。
 
 **对外接口**（以后想接大模型、或让 Lisa 听到话就做动作，都从这里接）：
 
 ```js
 window.lisaVoice.listen(function (d) { console.log(d.text); });  // 每说完一句回调一次
-window.addEventListener('lisa-voice', function (e) { console.log(e.detail); }); // 或者监听 window 事件
-window.lisaVoice.state();          // { armed, on, speaking, recognizing, levelDb, noiseDb, last, draft }
+window.addEventListener('lisa-voice', function (e) { console.log(e.detail); }); // 或监听 window 事件
+window.lisaVoice.state();          // { armed, on, engine, voskReady, speaking, recognizing, levelDb, noiseDb, last, draft }
 window.lisaVoice.disable();        // 关掉麦克风（保护隐私）
-window.lisaVoice.setLang('en-US'); // 换识别语言
+window.lisaVoice.unloadModel();    // 释放离线模型内存（下次开麦重新加载）
+window.lisaVoice.setLang('en-US'); // 换识别语言（只对 webspeech 引擎有效）
 ```
 
 `detail` 形如 `{ type: 'utterance' | 'partial', text: '…', draft: false }`。
 
-**三个必须知道的限制**：
+**必须知道的几件事**：
 
-1. **只在 `https` / `http://localhost` 下能用**。桌面用 `http://127.0.0.1:8000/human.html` 没问题；手机用 `启动本地服务.bat` 给出的 `http://192.168.x.x:8000` 属于**不安全上下文**，Chrome 会直接拒绝麦克风（页面会自己弹中文提示；临时办法是把该地址加进 `chrome://flags/#unsafely-treat-insecure-origin-as-secure` 白名单后重启浏览器）。
-2. **「识别」这一步在云端**：Chrome 走 Google、Edge 走微软。所谓纯前端 = 不需要你自己的后端，但**断网就用不了**，国内网络也可能连不上（控制台会看到 `network` 错误，页面会提示）。想真正离线、音频不出本机，需要把 `asr.js` 里的识别层换成 Vosk / Whisper 那类 WASM 本地模型。
-3. **Firefox 没有 Web Speech API**（会提示「当前浏览器不支持语音识别」）；Safari 与微信内置浏览器的支持也不完整，建议用 Chrome / Edge。
+1. **麦克风只在 `https` / `http://localhost` 下可用**：桌面用 `http://127.0.0.1:8000/human.html` 没问题；手机用 `启动本地服务.bat` 给出的 `http://192.168.x.x:8000` 属于**不安全上下文**，Chrome 会直接拒绝麦克风（页面会自己弹中文提示；临时办法是把该地址加进 `chrome://flags/#unsafely-treat-insecure-origin-as-secure` 白名单后重启浏览器）。
+2. **识别默认完全离线**：模型/引擎都在 `vosk/`，断网可用、音频不出本机；代价是多了 **49MB** 本地文件（`vosk.js` 5.8MB + `model.vosk` 43.9MB），要跟着页面一起部署。
+3. **中文小模型精度有限**：安静环境下常用词没问题，专业词/口音会错；想更准可以换更大的 Vosk 模型（如 `vosk-model-cn-0.22`，1.3GB），只替换 `vosk/` 里的模型文件并改 `CFG.voskModel` 即可。
+4. **切回云端识别**：把 `CFG.engine` 改成 `'webspeech'` 精度更高、体积归零，但要联网（Chrome 走 Google、Edge 走微软，国内可能连不上并报 `network`），且 **Firefox 没有 Web Speech API**。
+
+### 3.5 `llm.js` + `llm/`（本次新增）：跑在 GPU 上的端侧小模型
+
+让 Lisa 真的能"回话"：**听到你说完一整句 → 用显卡在本机生成回复 → 回复流式打字进对白层**。引擎、计算库、权重全是本地文件，断网可用、数据不出本机。
+
+| 组成 | 文件 | 体积 |
+|---|---|---|
+| 推理引擎 | `llm/web-llm.js`（WebLLM / MLC 的浏览器端 ESM 构建） | 6.6 MB |
+| WebGPU 计算库 | `llm/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm` | 4.6 MB |
+| 模型权重 | `llm/models/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/v2/`（q4f16，14 个分片） | 276 MB |
+
+> **为什么路径里有 `resolve/<段>/`？** WebLLM 的 `cleanModelUrl()` 会按 HuggingFace 的规则，给模型 URL 补上 `/resolve/main/`（只有 URL 里**已经**含 `resolve/<任意段>/` 时才不补）。所以本地权重就按这个层级摆，`CFG.modelUrl` 里带上这一段就不会被重复追加 —— 之前少了这层，浏览器请求 `…/resolve/main/mlc-chat-config.json` 直接 404，接着连 `Cache.add` 都失败。
+>
+> 现在这一段是 **`v2`**、不是 `main`：因为我们后来改过分片扩展名，而旧路径下的 `tensor-cache.json` 被浏览器"启发式缓存"住了、仍然指向老的 `.bin`，换个路径段就能让缓存自然失效（普通刷新即可拿到新文件）。同样地，`human.html` 里给 `asr.js` / `llm.js` 加了 `?v=3`。
+>
+> **这个目录里必须有这些文件**（以后换模型照着抄）：`mlc-chat-config.json`、`ndarray-cache.json`、`tensor-cache.json`、`tokenizer.json`、`vocab.json`、`merges.txt`、`tokenizer_config.json`，以及两份 `*-cache.json` 里 `dataPath` 列出的所有权重分片。少任何一个，WebLLM 都会在对应的那个 URL 上报 404（`llm.js` 的 `checkAssets()` 会先把前三个关键文件探一遍）。
+>
+> ⚠️ **权重分片的扩展名被故意改成 `.mlcw`**（原本是 `.bin`）：IDM 这类下载管理器会把 `.bin` 当下载链接截走，浏览器只拿到 0 字节，接着 WebLLM 就报 `Tensor-cache record range [0, 68067328) exceeds shard size 0`。换模型时如果又遇到这个错，照做即可：分片改成 `.mlcw`，再把 `ndarray-cache.json` / `tensor-cache.json` 里的 `dataPath` 一起改过来（更省心的办法是关掉下载管理器的浏览器集成，或把 `127.0.0.1` 加进它的白名单）。
+
+- **模型**：`Qwen2.5-0.5B-Instruct`（q4f16_1），中文可用；运行显存占用约 **950 MB**
+- **首次启动**：会编译 WebGPU 着色器（十几秒~1 分钟），之后权重进 **IndexedDB 缓存**（`appConfig.cacheBackend = 'indexeddb'`，和 Vosk 那套缓存一个思路），再打开直接读缓存、不再传输/解包，几秒就绪
+- **触发链路**：点 `[CLICK] TO START` → 2.5 秒后开始预热 → 你说的每句话定稿后（`lisa-voice` 的 `utterance`）自动问它 → 回复用 `say-partial` / `say` 事件流式打进对白层（**蓝色**，和"你说的"区分开）→ 你又开口说话时，会**打断**它正在生成的那一句
+- **浏览器要求**：Chrome / Edge 113+（WebGPU），页面在 `https` 或 `http://localhost` 下；没有 WebGPU 时只在顶部提示一次，**语音识别照常工作**（两者互不影响）
+- **全部本地路径都按绝对 URL 处理**（`abs()`），避免 WebLLM 内部拼相对路径出错
+
+对外接口：
+
+```js
+window.lisaLLM.ask('你好');        // 手动问一句（返回整段回复）
+window.lisaLLM.state();            // { webgpu, adapter, ready, busy, progress, model }
+window.lisaLLM.abort();            // 打断正在生成的回复
+window.lisaLLM.reset();            // 清空对话历史
+window.addEventListener('lisa-llm', function (e) { console.log(e.detail); });  // progress / ready / say-partial / say / error
+```
+
+想让它"只听不说"（不自动回话），把 `CFG.autoAnswer` 改成 `false`；想改成"用到才加载"，把 `CFG.preload` 改成 `'manual'`。
 
 ---
 
@@ -243,7 +320,15 @@ window.lisaVoice.setLang('en-US'); // 换识别语言
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `lang` | `'zh-CN'` | 识别语言（中文普通话；要英文改 `'en-US'`，也可运行时 `lisaVoice.setLang()`） |
+| `engine` | `'vosk'` | `'vosk'` = 本机离线模型（默认，断网可用）；`'webspeech'` = 浏览器自带识别（要联网） |
+| `voskScript` | `'./vosk/vosk.js'` | 离线引擎文件（单文件构建，WASM + Worker 都在里面） |
+| `voskModel` | `'./vosk/model.vosk'` | 离线模型文件；**扩展名别改回 `.tar.gz`**，否则会被 IDM 之类下载管理器拦截 |
+| `voskSampleRate` | `16000` | Vosk 模型原生采样率，不要改（采集端会按它开 AudioContext） |
+| `lang` | `'zh-CN'` | 识别语言（只对 `webspeech` 引擎有效；要英文改 `'en-US'`，也可运行时 `lisaVoice.setLang()`） |
+| `sayLayer` | `true` | 是否启用「对白层（弹幕）」；`false` = 改用原来那条小的底部字幕条 |
+| `sayScramble` | `true` | 说完一句时是否用「乱码落定」效果（原站同款）；`false` = 直接显示 |
+| `sayHoldMs` | `7000` | 说完之后面板停留多久（毫秒）后收起 |
+| `sayMaxLines` | `3` | 对白层最多保留几行，超出的从上面顶掉 |
 | `vadGate` | `true` | `true` = 检测到人声才开识别器（省电、不上传环境音）；`false` = 识别器常开（不丢句首，但一直上传音频） |
 | `preStartMs` | `80` | 能量超阈值多少毫秒就**提前**启动识别器（越大越省，越小越不容易丢句首） |
 | `minSpeechMs` | `150` | 持续多久算「真的在说话」（调大能压掉敲键盘、咳嗽之类的误触发） |
@@ -254,7 +339,20 @@ window.lisaVoice.setLang('en-US'); // 换识别语言
 | `restartDelayMs` / `retryNetworkMs` | `350` / `6000` | 识别器被浏览器结束后 / 网络错误后的重启间隔 |
 | `preStartGiveUpMs` | `2500` | 提前启动后多久还没确认在说话，就认作误触发并把识别器停掉 |
 
-界面尺寸、颜色都在 `human.html` 的内联样式里：`.c-lisa_voice`（右下角按钮，`bottom: 78px`）、`.c-lisa_voice-bar`（底部字幕条，`bottom: 92px`）、`.c-lisa_voice-tip`（错误提示条）；声波柱数量就是 `#lisa-voice-bars` 里的 `<i>` 个数（现在是 4 根）。
+界面尺寸、颜色都在 `human.html` 的内联样式里：`.c-lisa_voice`（右下角按钮，`bottom: 78px`）、`.c-lisa_voice-bar`（底部字幕条，`bottom: 92px`）、`.c-lisa_voice-tip`（错误提示条）；声波柱数量就是 `#lisa-voice-bars` 里的 `<i>` 个数（现在是 4 根）；对白层（弹幕）的样式在 `#lisa-say` 那几条覆盖规则里；Lisa 的回复用 `#lisa-say .c-lisa-step_dialog.is-lisa` 的蓝色。
+
+### 4.5 端侧小模型参数（都在 `llm.js` 顶部的 `CFG` 里，改完刷新即可）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `modelId` / `modelUrl` / `modelLib` | Qwen2.5-0.5B-Instruct-q4f16_1 | 换模型改这三项（权重目录 + WebGPU 计算库）；WebLLM 的 `prebuiltAppConfig.model_list` 里还有别的模型可挑 |
+| `maxTokens` | `160` | 一次最多生成多少 token（调大回复更长、更慢） |
+| `temperature` / `topP` | `0.8` / `0.95` | 采样参数（调低更稳、调高更发散） |
+| `system` | 中文人设 | 系统提示词（"你是谁、怎么回答"）；留空就不发 system 角色 |
+| `autoAnswer` | `true` | `false` = 不自动回话，只能用 `lisaLLM.ask()` 手动调 |
+| `preload` | `'idle'` | `'idle'` = 点过 START 后预热；`'manual'` = 用到才加载 |
+| `preloadDelayMs` | `2500` | 预热延迟（避开开场动画） |
+| `cooldownMs` | `1200` | 两次回话的最小间隔 |
 
 ---
 
@@ -271,8 +369,11 @@ window.lisaVoice.setLang('en-US'); // 换识别语言
 | 声音按钮 | ① 静音态点一下 → 开始播放 ② 播放中点一下 → 静音 ③ 静音后点模型 → **保持静音**（不被自动播放打开） ④ 再点 → 恢复播放 ⑤ 带 `lisa-muted=true` 刷新 → 保持静音 |
 | 按钮显示（逐像素字符画） | 播放中＝白圆+黑图标；静音中＝黑底+白图标，两个状态都清晰可见 |
 | 语法 | `node --check app.js` 通过 |
-| 语音输入（`asr.js`） | `node --check` 通过；另外用「假 DOM + 假 Web Audio + 假 SpeechRecognition」的脚本把 **VAD→ASR 全链路真跑了一遍**，20+ 项断言全过：手势后自动开麦（连点只申请一次）→ 静音期间**不会**启动识别器 → 能量起来自动启动 → 草稿上屏 → 停顿自动收句 → 定稿提交并派发 `lisa-voice` 事件 → 关麦时释放麦克风轨道；此外还用无头 Chrome 打开真实页面，确认 `asr.js` 与 `app.js` 共存无报错、API 正常挂载 |
-| 语音输入（真机） | ⚠️ 需要你自己在本机 Chrome / Edge 点一下确认（headless 环境没有麦克风）：打开页面 → 点 `[CLICK] TO START` → 浏览器询问麦克风时选「允许」→ 对麦克风说一句中文 → 底部应实时出字、停顿后定稿 |
+| 语音输入（离线引擎全链路） | `node --check` 通过；逻辑自测（假 DOM + 假 Web Audio + 假 SpeechRecognition）20+ 项断言全过；**无头 Chrome + 假麦克风实测**：点 `[CLICK] TO START` → 自动开麦 → `engine=vosk` → 模型加载 → `voskReady:true` → 识别器建立 → 音频喂入，**5 秒内就绪**；真实 Chrome 里单独验证 `Vosk.createModel()` 成功（模型加载 **1.8s**，`acceptWaveformFloat()` 正常） |
+| 语音输入（真人语音） | ⚠️ 还需你本人说一句话确认识别效果（无头环境只有假麦克风）：打开页面 → 点 `[CLICK] TO START` → 允许麦克风 → 说一句中文 → 底部应实时出字、停顿后定稿 |
+| 对白层（弹幕） | 无头 Chrome 实测通过：`lisa-voice` 事件驱动下 —— 草稿时面板升起（`is-on`）并带光标；定稿时做乱码落定（中途抓到乱码、结束时完整）；第二句另起一行且上一行降级为历史样式；连发 4 句只保留 3 行；停留 `sayHoldMs` 后面板收起；并核对了 `font-size / color / background / border-radius / z-index` 等计算样式确实吃到 `main.css` 的原站规则（过程中修掉一个真 bug：多句连续时前一句的落定动画被打断、卡在乱码） |
+| 端侧 GPU 小模型（`llm.js`） | `node --check` 通过；`llm/web-llm.js` 确认是 ESM 且导出 `CreateMLCEngine`；**无头 Chrome 实测**：`llm.js` 加载成功、`window.lisaLLM` 挂载、`navigator.gpu` 存在但无适配器时走到中文降级提示（`progress 正在检查 GPU…` → `error 这台设备的浏览器没有可用的 WebGPU…`），语音识别不受影响 |
+| 端侧小模型（真机生成） | ⚠️ 需要你在**有显卡的 Chrome / Edge** 里确认（无头环境没有 WebGPU 适配器，SwiftShader 也跑不动 276MB 模型）：点 `[CLICK] TO START` 后控制台应出现 `[llm] 端侧模型已就绪：Qwen2.5-0.5B-Instruct-q4f16_1-MLC（跑在 GPU 上）`，然后说一句话，弹幕里应出现**蓝色**的回复 |
 
 ---
 
@@ -294,6 +395,16 @@ window.lisaVoice.setLang('en-US'); // 换识别语言
 | 语音：句首一两个字没识别出来 | 用的是「VAD 门控」模式，识别器启动有 0.2~0.4s 延迟：把 `CFG.preStartMs` 调小（如 `40`），或把 `CFG.vadGate` 改成 `false`（识别器常开） |
 | 语音：环境吵时乱触发 / 收句太快太频繁 | 把 `CFG.snrDb`（默认 9）、`CFG.minSpeechMs`（默认 150）、`CFG.hangMs`（默认 800）按需要调大 |
 | 不想让它一直听麦克风 | 点右下角麦克风按钮关闭（会释放麦克风轨道）；或把 `human.html` 里 `<script src="./asr.js" defer …>` 那行注释掉 |
+| **语音一直卡在"正在加载离线语音模型"、控制台报 `Folder '…' does not contain model files`** | 基本就是 **IDM / 迅雷之类下载管理器把模型请求截走了**：① 保持 `vosk/model.vosk` 这个扩展名（**别改回 `.tar.gz`**）；② 或在下载管理器里把 `127.0.0.1` 加进白名单。判断特征：解压在**几毫秒**内就"完成"、目录为空（本次踩坑记录） |
+| 语音报 `需要 https 或 localhost` | 手机用局域网 IP（`http://192.168.x.x:8000`）访问属不安全上下文：改回 `localhost` 或用 `chrome://flags/#unsafely-treat-insecure-origin-as-secure` 加白名单 |
+| 对白层（弹幕）样子不对 / 位置怪 | 它吃的是 `main.css` 里原站那套 `.c-lisa_main` 样式：① 确认 `<link id="main-css" href="./main.css">` 还在（app.js 也依赖它）；② 想挪位置、改配色，就改 `human.html` 里 `#lisa-say` 那几条覆盖规则；③ 不想用它就设 `CFG.sayLayer = false`（回到小的底部字幕条） |
+| 顶部提示「没有可用的 WebGPU」 | 端侧小模型要 Chrome / Edge 113+，且页面在 `https` / `http://localhost` 下；老版 Chrome 可在 `chrome://flags/#enable-unsafe-webgpu` 里开。**开不了也没关系，语音识别照常工作** |
+| 控制台报 `…/resolve/main/mlc-chat-config.json 404` 接着 `Failed to execute 'add' on 'Cache'` | 模型目录层级不对（**已修**）：WebLLM 会把模型 URL 当 HF 仓库地址、自动补 `/resolve/main/`，所以权重必须摆在 `llm/models/<模型名>/resolve/main/` 下。现在 `llm.js` 里的 `checkAssets()` 会先 HEAD 探测，报错时直接告诉你**是哪个 URL 404** |
+| `Tensor-cache record range [0, N) exceeds shard size 0`，同时看到 IDM / 迅雷弹窗要下 `params_shard_x.bin` | 下载管理器把权重分片截走了，浏览器拿到 0 字节（**已修**）：分片扩展名改成 `.mlcw`，两份 `*-cache.json` 的 `dataPath` 也同步改了。建议顺手把 `127.0.0.1` 加进下载管理器白名单，一劳永逸 |
+| `An AudioWorkletProcessor with name "lisa-tap" is already registered` | 采集节点重复初始化（`addModule()` 异步期间的竞态，**已修**：加了 `tapPending` 守卫）。这个报错只影响麦克风采集，刷新页面即可 |
+| 小模型加载很久 / 加载失败 | 首次要编译 WebGPU 着色器（十几秒~1 分钟）并把 276MB 权重写进 IndexedDB，控制台会打 `progress` 进度，耐心等；失败时看控制台：`Failed to fetch …/llm/…` = 模型文件没跟着部署；显存不足则会报 WebGPU / OOM（需要约 1GB 空闲显存） |
+| Lisa 不自动回话 | ① `CFG.autoAnswer` 是否为 `true`；② `lisaLLM.state().ready` 是否为 `true`；③ 控制台有没有 `[llm] 生成失败` —— 若模型模板不接受 system 角色，代码会自动去掉 system 重试一次 |
+| 想让它别用显卡 / 别自动跑 | 把 `human.html` 里 `<script src="./llm.js" …>` 那行注释掉；或把 `CFG.preload` 改成 `'manual'`（不预热，只在你手动 `lisaLLM.ask()` 时才加载）；或 `CFG.autoAnswer = false`（只听不说） |
 
 ---
 
@@ -322,7 +433,7 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 | **加 `.nojekyll`** | 仓库根目录放一个空文件 `.nojekyll`，避免 GitHub Pages 用 Jekyll 处理时忽略/改写文件（本目录已放好） |
 | **仓库名用 ASCII** | 建议 `lisa-3d` 这类名字；当前文件夹名带空格和中文（`bendibanb - 副本`），URL 里会变成 `%20`/百分号编码，能用但难维护 |
 | **把本目录内容推到仓库根** | 或者任意子目录都行（页面用的是相对路径）；Pages 设置里选对应分支/目录即可 |
-| **体积** | 这个目录总共约 15 MB，最大的 `ambient.mp3` 4 MB、`lisa.glb` 2.9 MB、`app.js` 2.9 MB —— 远低于 GitHub 单文件 100 MB 限制，没问题 |
+| **体积** | 现在约 **340 MB**：`llm/models/` 276 MB + `llm/web-llm.js` 6.6 MB + `llm/*.wasm` 4.6 MB、`vosk/model.vosk` 43.9 MB、`vosk/vosk.js` 5.8 MB、`ambient.mp3` 4 MB、`lisa.glb` 2.9 MB、`app.js` 2.9 MB。**GitHub 单文件 100 MB 的上限仍然满足**（最大单文件是 `params_shard_0.bin` 65 MB），但仓库 340MB，push/clone 会明显变慢；介意的话可把 `vosk/`、`llm/` 放到别的静态服务上，再把 `CFG.voskModel` 与 `llm.js` 里的 `modelUrl` / `modelLib` 改成绝对 URL |
 | **`启动本地服务.bat`** | 只在本地双击有用，推上去也不影响（可以删掉） |
 | **CORS / MIME** | GitHub Pages 会给 `.mp3` 发 `audio/mpeg`、`.woff2` 发 `font/woff2`；`.glb` / `.exr` 一般是 `application/octet-stream`，three.js 用 arraybuffer 读取，不受影响 |
 | **字体** | `main.css` 里是 `/xxx.woff2` 这种根路径，仓库在子路径下会 404；本页已在 `human.html` 里用**相对路径 `@font-face` 覆盖**，所以子目录部署也正常 |
@@ -335,6 +446,6 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 
 ## 9. 附
 
-- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；改动一共三处：`human.html`（重写 + 语音 UI）、`app.js`（三类补丁）、**新增 `asr.js`（语音输入 VAD + ASR，独立于 `app.js`）**。
+- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：离线 Vosk / 云端 Web Speech）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）。
 - 桌面上另有 `bendibanb\`（原始快照，未改动）与 `bendibanb.zip`，需要对照或回退时可用。
 - `app.js` 是压缩打包体，补丁以**独立段落注入**（只替换了 3 处字符串 + 在 `oP` 类后插入一段自包含代码），格式化/压缩工具不要再压缩这段，否则注释与可读结构会丢。
