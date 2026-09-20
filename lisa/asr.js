@@ -107,6 +107,15 @@
     };
     var hist = { prev: '' };   /* 上一句（字幕条里那一行浅色文字） */
 
+    /* ------------------------------------------------------------------ 静默闸门（给 Lisa 的语音播报用）
+       Lisa 一开口（tts.js 播报她的回复），麦克风必然会把扬声器里她的声音也收进去；
+       这段识别结果既不该显示，更不该被当成「你说的」再回她一句 —— 否则两个人会互相听、
+       自己跟自己无限聊下去。闸门打开期间：
+         · 定稿（utterance）不提交，llm.js 也就不会回话
+         · 草稿（partial）只打一个 quiet 标记（对白层不显示，但 tts.js 还能拿它判断「你想插话」）
+       开关：window.lisaVoice.hold(true / false)，见文件末尾的对外接口 */
+    var gate = { hold: false };
+
     /* ------------------------------------------------------------------ 屏幕提示条
        （正式错误才出现，例如麦克风被拒 / 浏览器不支持；点一下可关掉） */
     function showTip(html) {
@@ -170,12 +179,15 @@
     }
 
     function renderCaption() {
-        var has = !!(asr.finalText || asr.draft || hist.prev || voice.hint);
+        /* 静默闸门开着（Lisa 正在播报）时，字幕条不显示识别结果：那多半是她自己的声音 */
+        var finText = gate.hold ? '' : asr.finalText;
+        var draftText = gate.hold ? '' : asr.draft;
+        var has = !!(finText || draftText || hist.prev || voice.hint);
         var prev = voice.hint || hist.prev || '';
         elPrev.textContent = prev;
         elPrev.style.display = prev ? 'block' : 'none';
-        elFinal.textContent = asr.finalText;
-        elDraft.textContent = asr.draft;
+        elFinal.textContent = finText;
+        elDraft.textContent = draftText;
         if (has && !CFG.sayLayer) elBar.classList.add('is-show');
         else if (!has) elBar.classList.remove('is-show');
     }
@@ -314,7 +326,7 @@
 
     window.addEventListener('lisa-voice', function (e) {
         var d = e.detail || {};
-        if (d.type === 'partial') sayDraft(d.text, 'user');
+        if (d.type === 'partial') { if (!d.quiet) sayDraft(d.text, 'user'); }
         else if (d.type === 'utterance') sayUtterance(d.text, 'user');
         else if (d.type === 'say-partial') sayDraft(d.text, 'lisa');      /* 端侧小模型流式打字 */
         else if (d.type === 'say') sayUtterance(d.text, 'lisa');          /* 端侧小模型整句落定 */
@@ -455,8 +467,10 @@
             window.clearTimeout(voice.captionTO);
             if (engineKind === 'webspeech' && !asr.running) startRecognizer();   /* 常开模式本来就该在跑 */
             setState('speak');
-            sayShow();                               /* 一开口就把对白层升起来（还没出字时只有光标） */
-            if (!CFG.sayLayer) elBar.classList.add('is-show');
+            if (!gate.hold) {                        /* Lisa 在播报时不升对白层：那时候麦克风里是她的声音 */
+                sayShow();                           /* 一开口就把对白层升起来（还没出字时只有光标） */
+                if (!CFG.sayLayer) elBar.classList.add('is-show');
+            }
         }
 
         /* ③ 误触发：提前启动之后一直没确认为“说话”，把识别器停掉 */
@@ -511,6 +525,16 @@
     function emit(type, detail) {
         detail = detail || {};
         detail.type = type;
+        if (gate.hold) {
+            if (type === 'utterance') {          /* 播报期间不提交：这句多半是收进去的 Lisa 自己的声音 */
+                asr.finalText = '';
+                asr.draft = '';
+                asr.committed = false;
+                renderCaption();
+                return;
+            }
+            detail.quiet = true;                 /* 草稿只标记「静默期」，UI 层自己决定显不显示 */
+        }
         for (var i = 0; i < listeners.length; i++) {
             try { listeners[i](detail); } catch (e) { console.warn('[voice] listener 出错', e); }
         }
@@ -851,6 +875,13 @@
 
     /* 收句入库：一句说完后把它提交出来（字幕、回调、window 事件都会拿到） */
     function commitUtterance() {
+        if (gate.hold) {                   /* Lisa 在播报：这句多半是她的声音被收回来了，直接丢掉 */
+            asr.finalText = '';
+            asr.draft = '';
+            asr.committed = false;
+            renderCaption();
+            return '';
+        }
         var fin = (asr.finalText || '').replace(/\s+/g, ' ').trim();
         var draft = (asr.draft || '').replace(/\s+/g, ' ').trim();
         var text = fin || draft;
@@ -959,7 +990,9 @@
     /* ------------------------------------------------------------------ 对外接口
        window.lisaVoice.listen(fn)  —— 每说完一句回调一次：fn({ type:'utterance', text:'…', draft:false })
        也可以直接听 window 事件：window.addEventListener('lisa-voice', e => e.detail)
-       拿到 text 之后想接大模型 / 让 Lisa 换表情 / 打开某个页面，都从这里接即可。 */
+       拿到 text 之后想接大模型 / 让 Lisa 换表情 / 打开某个页面，都从这里接即可。
+       window.lisaVoice.hold(on)    —— 静默闸门：Lisa 说话期间（tts.js）关掉「把你的话提交出来」，
+                                      免得麦克风把扬声器里的她收回来又回一句，自己跟自己聊下去 */
     window.lisaVoice = {
         config: CFG,
         supported: wsSupported,
@@ -979,11 +1012,27 @@
             if (i >= 0) listeners.splice(i, 1);
         },
         unloadModel: unloadVoskModel,     /* 释放离线模型占的内存（下次开麦会重新加载） */
+        /* 静默闸门：tts.js 播报 Lisa 的回复时会调 hold(true)，播完再 hold(false)。
+           开着的时候：定稿不提交（不会触发 llm.js 回话）、对白层不升也不显示、
+           字幕条不显示；草稿仍然带 quiet 标记派发出来，方便 tts.js 判断「你想插话」 */
+        hold: function (on) {
+            var want = !!on;
+            if (gate.hold === want) return gate.hold;
+            gate.hold = want;
+            if (want) {                   /* 立刻清掉「还在说」的那半句，别把她的回声留在界面上 */
+                window.clearTimeout(voice.captionTO);
+                asr.finalText = '';
+                asr.draft = '';
+                asr.committed = false;
+                renderCaption();
+            }
+            return gate.hold;
+        },
         state: function () {
             return {
                 armed: voice.armed, on: voice.on, hidden: voice.hidden,
                 engine: engineKind, voskReady: !!vosk.model,
-                speaking: !!vad.speaking,
+                speaking: !!vad.speaking, hold: gate.hold,
                 recognizing: engineKind === 'vosk' ? !!vosk.rec : asr.running,
                 levelDb: Math.round(vad.level), noiseDb: Math.round(vad.noise),
                 last: voice.lastText || '', draft: asr.draft || ''

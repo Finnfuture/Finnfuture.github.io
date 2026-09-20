@@ -31,6 +31,11 @@
           导入世界书（world info JSON，关键词命中才注入，可叠多本）、导出 / 导入记忆包
           （人设 + 世界书 + 对话历史一份 JSON）；文件也可以直接拖到页面上导入。
           这三样全部缓存在 localStorage（键 lisa-memory-v1），刷新不丢、不上传任何地方。
+       10) 语音播报（TTS，实现见 tts.js）：把 Lisa 的回复（对白层里的蓝字）念出来 ——
+           默认用浏览器内置的 SpeechSynthesis（中文音色，本机合成、断网可用、不新增任何文件）；
+           右下角喇叭按钮：单击开 / 关，长按或右键打开音色面板（音色 / 语速 / 音调 / 试听）。
+           关键：播报期间会调用 asr.js 的静默闸门（window.lisaVoice.hold），麦克风里收进来的
+           多半是她自己的声音 —— 那就不提交、不显示、也不触发她回话，免得她跟自己聊起来。
 
   · 必须通过本地 HTTP 服务访问（例如 `python -m http.server 8000` 或 `npx serve`）。
     直接双击以 file:// 打开时，浏览器会因 CORS 拦截 .glb / .mp4 / .mp3 / .exr 的加载。
@@ -383,6 +388,52 @@
         }
 
         /* ==================================================================
+           语音播报（TTS）：右下角喇叭按钮（在麦克风按钮上面一格）+ 音色面板
+           逻辑全在 tts.js 里；面板复用上面 .c-lisa_memory 那套深色样式
+           ================================================================== */
+        #lisa-tts {
+            bottom: 138px
+        }
+
+        #lisa-tts svg {
+            fill: #fff;
+            width: 24px;
+            height: 24px;
+            display: block
+        }
+
+        /* 关掉播报时只留喇叭本体，声波藏起来（按钮还会吃 .c-lisa_voice.is-off 的半透明） */
+        #lisa-tts.is-off .c-lisa_tts-wave {
+            display: none
+        }
+
+        /* 音色面板：和记忆面板同一个位置（同一时间只开一个），里面的原生控件要单独配颜色 */
+        #lisa-tts-panel {
+            bottom: 260px
+        }
+
+        .c-lisa_tts-select {
+            flex: 1 1 auto;
+            max-width: 100%;
+            padding: 5px 6px;
+            border: 1px solid rgba(255, 255, 255, .35);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, .08);
+            color: #fff;
+            font: inherit
+        }
+
+        .c-lisa_tts-select option {
+            color: #111
+        }
+
+        #lisa-tts-panel input[type=range] {
+            flex: 1 1 auto;
+            margin: 0;
+            accent-color: #8ecae6
+        }
+
+        /* ==================================================================
            Lisa 对白层（弹幕）
            直接复用 main.css 里原站的 .c-lisa_main / .c-lisa-step / .c-lisa-step_dialog
            与 .-show-cursor 的闪烁光标，这里只做必要覆盖：
@@ -445,8 +496,9 @@
         /* ==================================================================
            记忆 / 人设 / 世界书面板（memory.js 驱动）—— 风格跟右下角那几个按钮一致
            ================================================================== */
+        /* 语音播报按钮占了原来的这一格（138px），记忆按钮往上让一格 */
         #lisa-memory-btn {
-            bottom: 138px
+            bottom: 198px
         }
 
         #lisa-memory-btn svg {
@@ -458,7 +510,7 @@
         .c-lisa_memory {
             position: fixed;
             right: 18px;
-            bottom: 200px;
+            bottom: 260px;
             z-index: 2147483645;
             width: 370px;
             max-width: calc(100vw - 36px);
@@ -608,6 +660,18 @@
                 </svg>
             </button>
 
+            <!-- 语音播报（TTS，tts.js）：把 Lisa 的回复念出来 ——
+                 单击 = 开 / 关播报；长按（约 0.6s）或右键 = 音色面板（音色 / 语速 / 音调 / 试听）。
+                 默认用浏览器内置合成（离线、零依赖）；关掉时声波藏起、只留喇叭本体 -->
+            <button type="button" id="lisa-tts" class="c-lisa_voice" aria-label="语音播报已开启"
+                title="语音播报：开（单击关闭 / 长按选音色）">
+                <svg viewBox="0 0 24 24" aria-hidden="true" style="fill:#fff">
+                    <path d="M4 9.4h3.2L11.7 6v12L7.2 14.6H4z" />
+                    <path class="c-lisa_tts-wave" d="M14.3 8.9a4.3 4.3 0 0 1 0 6.2l1.4 1.4a6.3 6.3 0 0 0 0-9z" />
+                    <path class="c-lisa_tts-wave" d="M17.3 5.9a8.7 8.7 0 0 1 0 12.2l1.4 1.4a10.6 10.6 0 0 0 0-15z" />
+                </svg>
+            </button>
+
             <!-- 语音输入（VAD + ASR，纯前端）：
                  点过 “[CLICK] TO START”（页面首次点击 / 按键）之后自动打开麦克风并进入 VAD 常听状态：
                  一说话就自动开始识别、边说边出字，停顿约 0.8s 自动收句；再点这个按钮可随时关 / 开。
@@ -680,6 +744,45 @@
                     记忆 = 人设 + 世界书 + 对话历史，只存在这台浏览器里（localStorage），刷新不丢、不外传。
                 </div>
                 <input type="file" id="lisa-file-input" style="display:none">
+            </div>
+
+            <!-- 语音播报设置（tts.js 驱动，样式复用上面那块记忆面板）：
+                 音色 / 语速 / 音调 / 试听；设置存在 localStorage['lisa-tts-v1']，刷新不丢 -->
+            <div class="c-lisa_memory" id="lisa-tts-panel" role="dialog" aria-label="语音播报设置">
+                <div class="c-lisa_memory-head">
+                    <b>语音播报（TTS）</b>
+                    <span class="c-lisa_memory-close" id="lisa-tts-close" title="关闭">✕</span>
+                </div>
+                <div class="c-lisa_memory-row">
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-tts-test">试听</button>
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-tts-stop">停止</button>
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-tts-refresh">重找音色</button>
+                </div>
+                <div class="c-lisa_memory-file" id="lisa-tts-info" style="margin-bottom:8px">正在读取系统音色…</div>
+                <label class="c-lisa_memory-check">
+                    <span class="c-lisa_memory-file" style="margin-right:8px">音色</span>
+                    <select id="lisa-tts-voice" class="c-lisa_tts-select"></select>
+                </label>
+                <label class="c-lisa_memory-check">
+                    <span class="c-lisa_memory-file" style="margin-right:8px">语速</span>
+                    <input type="range" id="lisa-tts-rate" min="0.6" max="1.8" step="0.02" value="1.06">
+                    <span class="c-lisa_memory-file" id="lisa-tts-rate-val" style="margin-left:8px">1.06×</span>
+                </label>
+                <label class="c-lisa_memory-check">
+                    <span class="c-lisa_memory-file" style="margin-right:8px">音调</span>
+                    <input type="range" id="lisa-tts-pitch" min="0.6" max="1.6" step="0.02" value="1.06">
+                    <span class="c-lisa_memory-file" id="lisa-tts-pitch-val" style="margin-left:8px">1.06</span>
+                </label>
+                <div class="c-lisa_memory-hint">
+                    单击右下角喇叭 = 开 / 关播报，长按（或右键）= 打开这块面板。<br>
+                    默认用<b>浏览器内置合成</b>：音色来自系统，<b>本机合成、断网可用</b>。列表里没有中文音色时，
+                    去系统「时间和语言 → 语音」装一个中文语音包（Windows），回来点「重找音色」即可。<br>
+                    播报期间她会用 asr.js 的静默闸门按住识别结果：麦克风收到的大多是扬声器里她自己的声音，
+                    所以那段时间不提交你说的句子。戴耳机想随时插话，把 tts.js 顶部 <code>CFG.bargeIn</code>
+                    改成 <code>true</code>。<br>
+                    想要更自然的音色：把 <code>CFG.engine</code> 改成 <code>'server'</code>，填上
+                    <code>CFG.server.url</code>，接你自己起的本地 TTS 服务（GPT-SoVITS / edge-tts / ChatTTS…）。
+                </div>
             </div>
 
             <!-- 整页拖入文件时的提示层 -->
@@ -904,6 +1007,13 @@
     <script src="./llm.js?v=7" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='fail'"></script>
+
+    <!-- 语音播报（TTS，纯前端）：把她生成的回复念出来，让「对话」真的能听见
+         默认用浏览器内置合成（离线、零依赖）；播报期间会用 asr.js 的静默闸门按住识别结果，
+         免得她把扬声器里自己的声音当成「你说的」再回一句（自己跟自己聊下去） -->
+    <script src="./tts.js?v=1" defer
+        onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.tts='ok'"
+        onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.tts='fail'"></script>
 
     <script>
         /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError 和 403，看着像“按钮坏了”）。

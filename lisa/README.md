@@ -1,6 +1,6 @@
 # Lisa 3D 人物模型 · 精简版说明文档
 
-> 本文档对应目录：`c:\Users\大爷\Desktop\bendibanb - 副本`
+> 本文档对应目录：`c:\Users\大爷\Desktop\lisa`
 > 页面文件：`human.html`（重写过）、`app.js`（打了补丁）、`main.css`（**未改动**）
 
 ---
@@ -22,6 +22,7 @@
 | `vosk/model.vosk` | **中文语音模型**（= 官方 `vosk-model-small-cn-0.22.tar.gz`，只改了扩展名） | 43.9 MB，本地文件；叫 `.tar.gz` 会被 IDM 拦截，故改名 |
 | `llm.js` | **端侧 GPU 小模型**（WebGPU / WebLLM）：听到你说完一整句就用显卡生成回复 | 本次新增，见第 3.5 节 |
 | `memory.js` | **记忆 / 人设 / 世界书**：导入角色卡（PNG/JSON）与世界书、对话记忆本地缓存与导出导入 | 本次新增，见第 3.6 节 |
+| `tts.js` | **语音播报（TTS）**：把 Lisa 的回复念出来（默认浏览器内置合成，离线、零依赖；也可换成自己起的本地 TTS 服务） | 本次新增，见第 3.7 节 |
 | `llm/web-llm.js` | WebLLM 引擎（MLC 的浏览器端推理库，ESM） | 6.6 MB，本地文件 |
 | `llm/Qwen2-0.5B-…-webgpu.wasm` | 该模型对应的 WebGPU 计算库 | 4.6 MB，本地文件 |
 | `llm/models/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/v2/` | 模型权重（q4f16 量化，14 个分片） | 276 MB，本地文件；**`resolve/<段>` 这层是 WebLLM 的规则，别删** |
@@ -61,11 +62,15 @@ npx serve -l 8000
         ├─ <div class="c-lisa_main" id="lisa-say">                        ← 对白层（弹幕）：复用原站 .c-lisa_main 样式
         ├─ <div class="c-lisa_visualizer" data-module-lisa-visualizer>   ← 3D 画布挂载点
         ├─ <button class="c-lisa_sound" id="lisa-sound">                  ← 声音开关
+        ├─ <button class="c-lisa_voice" id="lisa-tts">                    ← 语音播报（TTS）开关：单击开/关，长按或右键选音色
         ├─ <button class="c-lisa_voice" id="lisa-voice">                  ← 语音输入开关（说话时图标变声波）
+        ├─ <button class="c-lisa_voice" id="lisa-memory-btn">             ← 记忆 / 人设 / 世界书面板开关
         ├─ <div class="c-lisa_voice-bar" id="lisa-voice-bar">             ← 底部实时字幕（上一句 / 定稿 / 草稿 + 光标）
-        └─ <div class="c-lisa_voice-tip" id="lisa-voice-tip">             ← 只在语音出错时出现的提示条
+        ├─ <div class="c-lisa_voice-tip" id="lisa-voice-tip">             ← 只在语音出错时出现的提示条
+        ├─ <div class="c-lisa_memory" id="lisa-memory">                   ← 记忆 / 人设 / 世界书面板
+        └─ <div class="c-lisa_memory" id="lisa-tts-panel">                ← 语音播报设置面板（音色 / 语速 / 音调 / 试听）
     window.preloaderEnterPromise / window.preloaderPromise                ← app.js 启动必需
-    ./vendors.js、./app.js、./asr.js
+    ./vendors.js、./app.js、./asr.js、./memory.js、./llm.js、./tts.js
 ```
 
 ### 2.2 app.js 的启动链路（为什么要保留那几个元素）
@@ -90,6 +95,7 @@ npx serve -l 8000
 | 右下角声音按钮 | 当前没声音 → 点它开始播放；正在响 → 点它静音（状态记忆在 `localStorage['lisa-muted']`） |
 | **语音输入（VAD + ASR）** | 点过 `[CLICK] TO START` 之后**自动开麦常听**：一说话就自动识别、边说边出字，停顿 ≈0.8s 自动收句；右下角麦克风按钮可随时开 / 关（详见第 3.4 节） |
 | **语音结果展示（对白层 / 弹幕）** | 一开口：底部白色面板升起并实时显示草稿；说完一句：用「乱码落定」定格 + 闪烁光标，停留 ≈7s 后收起；最多保留 3 行，新的一句把旧的往上顶（详见第 3.4 节） |
+| **语音播报（TTS）** | Lisa 的回复（对白层里的那行蓝字）会**念出来**：右下角喇叭按钮单击开 / 关，长按或右键打开音色面板（音色 / 语速 / 音调 / 试听）；播报期间用 `asr.js` 的静默闸门按住识别结果，免得她听见自己（详见第 3.7 节） |
 
 ---
 
@@ -232,6 +238,9 @@ window.lisaVoice.state();          // { armed, on, engine, voskReady, speaking, 
 window.lisaVoice.disable();        // 关掉麦克风（保护隐私）
 window.lisaVoice.unloadModel();    // 释放离线模型内存（下次开麦重新加载）
 window.lisaVoice.setLang('en-US'); // 换识别语言（只对 webspeech 引擎有效）
+window.lisaVoice.hold(true);       // 静默闸门：这段时间不提交「你说的」（tts.js 播报她的回复时会用；
+                                   // 定稿不提交、对白层不升、字幕条不显示，草稿仍带 quiet 标记派发出来）；
+                                   // hold(false) 恢复。它的存在就是为了防「她自己听见自己再回一句」
 ```
 
 `detail` 形如 `{ type: 'utterance' | 'partial', text: '…', draft: false }`。
@@ -255,7 +264,7 @@ window.lisaVoice.setLang('en-US'); // 换识别语言（只对 webspeech 引擎�
 
 > **为什么路径里有 `resolve/<段>/`？** WebLLM 的 `cleanModelUrl()` 会按 HuggingFace 的规则，给模型 URL 补上 `/resolve/main/`（只有 URL 里**已经**含 `resolve/<任意段>/` 时才不补）。所以本地权重就按这个层级摆，`CFG.modelUrl` 里带上这一段就不会被重复追加 —— 之前少了这层，浏览器请求 `…/resolve/main/mlc-chat-config.json` 直接 404，接着连 `Cache.add` 都失败。
 >
-> 现在这一段是 **`v2`**、不是 `main`：因为我们后来改过分片扩展名，而旧路径下的 `tensor-cache.json` 被浏览器"启发式缓存"住了、仍然指向老的 `.bin`，换个路径段就能让缓存自然失效（普通刷新即可拿到新文件）。同样地，`human.html` 里给 `asr.js` / `llm.js` 加了 `?v=3`。
+> 现在这一段是 **`v2`**、不是 `main`：因为我们后来改过分片扩展名，而旧路径下的 `tensor-cache.json` 被浏览器"启发式缓存"住了、仍然指向老的 `.bin`，换个路径段就能让缓存自然失效（普通刷新即可拿到新文件）。同样地，`human.html` 里给 `asr.js` / `memory.js` / `llm.js` 加了 `?v=7`、给 `tts.js` 加了 `?v=1`（脚本一改就把版本号加一，普通刷新也能拿到新版）。
 >
 > **这个目录里必须有这些文件**（以后换模型照着抄）：`mlc-chat-config.json`、`ndarray-cache.json`、`tensor-cache.json`、`tokenizer.json`、`vocab.json`、`merges.txt`、`tokenizer_config.json`，以及两份 `*-cache.json` 里 `dataPath` 列出的所有权重分片。少任何一个，WebLLM 都会在对应的那个 URL 上报 404（`llm.js` 的 `checkAssets()` 会先把前三个关键文件探一遍）。
 >
@@ -325,6 +334,66 @@ window.lisaMemory.openPanel(true)  // 打开面板
 ```
 
 导入角色卡后如果历史是空的，会先用卡片的 `first_mes` 说一句开场白（进入底部对白层）。
+
+### 3.7 `tts.js`（本次新增）：把 Lisa 的回复念出来（TTS）
+
+让「对话」真的能听见：**她在对白层里说的那一行蓝字会被念出来**。默认用浏览器内置的 `SpeechSynthesis` —— 本机合成、**断网可用、零依赖、不新增任何文件**（和 asr.js 挑「本机离线识别」是同一个思路）；想要更自然的音色，再换成自己起的本地 TTS 服务。
+
+| 环节 | 用什么 | 说明 |
+|---|---|---|
+| **音色** | `speechSynthesis.getVoices()` | 只列**同语言**（`CFG.lang` 的语言前缀，默认 `zh`）的音色，再按 `voiceHints` 的关键词顺序打分（`Xiaoxiao` → `Xiaoyi` → `Yunxi` → `Huihui` → …），并优先「本机离线」音色；面板里选的音色名存进 `localStorage['lisa-tts-v1']` |
+| **播报（默认）** | `SpeechSynthesisUtterance` | **一句一个 utterance**：整段交给引擎容易被截断，逐句播报还能「边生成边念」，句间留 `sentenceGapMs` 换气 |
+| **播报（可选）** | `CFG.engine = 'server'` | POST `{text,voice,rate,pitch,lang}` 到本地 TTS 服务（GPT-SoVITS / edge-tts / ChatTTS / CosyVoice…），回来的音频二进制用 `<audio>` 播 |
+
+**触发链路**：`llm.js` 的回复走 `say-partial`（**反复推「到目前为止的整段回复」**）→ 这里只取新长出来的那一段 → 攒够一句（遇到句末标点，或到 `maxChunkChars` 退到最近的逗号）→ 清洗文本 → 入队 → 逐句念；`say` 到达时把剩下的尾巴也念完。`memory.js` 的人设开场白是一条 `say`，同样会被念。
+
+```js
+// 半句 -> 整句：半句先在缓冲区里攒着，句末标点一到就念
+say-partial "我是 Lisa，这片宇宙"                      -> 不念
+say-partial "我是 Lisa，这片宇宙由我维护。欢迎回来…"    -> 念「我是 Lisa，这片宇宙由我维护。」
+say-partial 之后同一段反复推来（每次都带全量文本）      -> 只取新增部分，不会重复念
+```
+
+**不吵到自己**（这是最容易踩的坑）：她一开口，麦克风必然把扬声器里的她收进去 —— 这些识别结果如果不处理，就会被当成「你说的」再回她一句，于是两个人自己跟自己聊下去。所以：
+
+```
+起播      -> window.lisaVoice.hold(true)   // asr.js 静默闸门：定稿不提交、对白层不升、字幕条不显示
+播完 / 被打断 -> hold(false)                // 留 holdReleaseMs 余量，等回声散掉再放开
+起播保护窗口 guardMs（默认 900ms）          // 这段时间忽略语音事件，防「起播那一下」的回声误打断
+```
+
+**被打断（barge-in）**：`CFG.bargeIn = false`（默认）时她会把话说完 —— 你这时候说话**不会被识别**（等她说完再听你）。
+戴耳机想随时插话就把 `bargeIn` 改成 `true`：你一出字（`partial`）就停下播报，并把闸门放开，你的话立刻被正常识别。
+
+**界面**（`human.html` 里新增的 DOM + CSS）：
+
+| 元素 | 行为 |
+|---|---|
+| 右下角喇叭按钮 `#lisa-tts`（`bottom: 138px`，正好在麦克风按钮上面一格） | 单击 = 开 / 关播报；**长按 ≈0.6s 或右键 = 音色面板**；关掉时声波藏起来（`#lisa-tts.is-off .c-lisa_tts-wave`），正在念时吃 `.c-lisa_voice.is-speak` 的脉冲光圈 |
+| 音色面板 `#lisa-tts-panel` | 复用 `.c-lisa_memory` 那套深色样式（`bottom: 260px`）：音色下拉 / 语速 / 音调 / 试听 / 停止 / 重找音色 |
+| 记忆按钮与面板 | 各往上让了一格（`bottom: 198px` / `bottom: 260px`），两块面板同一个位置，打开一个会自动收起另一个 |
+
+**对外接口**：
+
+```js
+window.lisaTTS.speak('你好呀');            // 手动念一段（不受开关限制）
+window.lisaTTS.test();                    // 试听（面板上「试听」按钮调的就是它）
+window.lisaTTS.on() / .off() / .toggle()  // 开关（会写进 localStorage）
+window.lisaTTS.stop();                    // 立刻停下（同时放开 asr.js 的静默闸门）
+window.lisaTTS.voices();                  // 当前浏览器的音色列表
+window.lisaTTS.setVoice('Microsoft Xiaoxiao Online …');
+window.lisaTTS.setLang('zh-CN');          // 换播报语言（会影响挑音色的规则）
+window.lisaTTS.panel(true);               // 打开音色面板
+window.lisaTTS.state();                   // { supported, enabled, engine, playing, queue, voice, voiceCount, rate, pitch, gate, bargeIn, lastError }
+window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  // sentence / end / error / state
+```
+
+**必须知道的几件事**：
+
+1. **音色来自系统**：Windows 在「设置 → 时间和语言 → 语音」里装中文语音包，macOS 自带 `Tingting`，Chrome 还有自带的「Google 普通话」。列表里没有中文音色时不会报错，只是念出来带英文口音 —— 面板上点「重找音色」刷新。
+2. **切到后台自动停**：`visibilitychange` 到 hidden 时会 `stop()`（asr.js 那边也停了识别，继续念没意义）；切回来不会自动续念。
+3. **和右下角那个圆形「声音」按钮无关**：那个管的是 `ambient.mp3` 环境音；播报音量是 `CFG.volume`。
+4. **长句不会被截断**：每句一个 utterance，另有按字数估算时长的看门狗（Chrome 偶尔不触发 `onend`）。
 
 ---
 
@@ -416,6 +485,33 @@ window.lisaMemory.openPanel(true)  // 打开面板
 | `worldScanDepth` | `4` | 匹配世界书时回看最近几条消息 |
 | `defaultPersona` | 内置中文人设 | 没导入角色卡时用的默认人设 |
 
+### 4.7 语音播报参数（都在 `tts.js` 顶部的 `CFG` 里，改完刷新即可）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `engine` | `'webspeech'` | `'webspeech'` = 浏览器内置合成（离线、零依赖）；`'server'` = 本地 TTS 服务 |
+| `lang` | `'zh-CN'` | 期望的语音；挑音色和建 utterance 都用它 |
+| `voiceHints` | `['xiaoxiao','晓晓','xiaoyi',…]` | 自动挑音色的偏好顺序（按名字片段匹配，越靠前越优先） |
+| `voiceName` | `''` | 指定音色名（面板里选的就是它；清空 = 按 `voiceHints` 自动挑） |
+| `preferLocal` | `true` | 优先挑「本机离线」音色（不把文字送去云端合成） |
+| `rate` / `pitch` / `volume` | `1.06` / `1.06` / `1` | 语速 / 音调 / 播报音量 |
+| `enabled` | `true` | 默认开着播报（用户开关会写进 localStorage 并覆盖它） |
+| `autoSpeak` | `true` | `false` = 只认手动 `lisaTTS.speak()`，不自动念回复 |
+| `streamSpeech` | `true` | `true` = 边生成边念（按标点断句）；`false` = 等整段生成完再念 |
+| `stripText` | `true` | 念之前清洗文本（markdown、括号里的动作、emoji、链接…） |
+| `minChunkChars` | `6` | 短于这个字数的一句先攒着，和后面并起来念（避免「嗯。」「好。」） |
+| `maxChunkChars` | `110` | 单次最多念多少字（模型飙长句时退到最近的逗号处切开） |
+| `sentenceGapMs` | `150` | 句与句之间的停顿（毫秒） |
+| `firstDelayMs` | `220` | 收到第一段文字后先等一会儿再开口（多攒几个字，语气更连贯） |
+| `guardMs` | `900` | 每次起播后忽略语音事件的时间（防回声误打断） |
+| `bargeIn` | `false` | `true` = 你一开口就打断她的播报（耳机下推荐） |
+| `selfListen` | `true` | `true` = 播报期间按住 `asr.js` 的静默闸门（防自己跟自己聊） |
+| `holdReleaseMs` | `350` | 播完之后多久恢复「接收你说的语音」 |
+| `maxQueue` | `6` | 待念的句子最多堆几条（超了丢最早的） |
+| `longPressMs` | `600` | 长按喇叭按钮多久算「长按」（开音色面板；右键同效） |
+| `storageKey` | `'lisa-tts-v1'` | 开关 / 音色 / 语速 / 音调的 localStorage 键 |
+| `server.url` / `.voice` / `.format` / `.timeoutMs` | `''` / `''` / `'wav'` / `15000` | 引擎二：本地 TTS 服务的地址 / 音色 id / 音频格式 / 超时 |
+
 ---
 
 ## 5. 已经跑过的验证（headless Chrome + 本地 HTTP）
@@ -437,6 +533,8 @@ window.lisaMemory.openPanel(true)  // 打开面板
 | 端侧 GPU 小模型（`llm.js`） | `node --check` 通过；`llm/web-llm.js` 确认是 ESM 且导出 `CreateMLCEngine`；**无头 Chrome 实测**：`llm.js` 加载成功、`window.lisaLLM` 挂载、`navigator.gpu` 存在但无适配器时走到中文降级提示（`progress 正在检查 GPU…` → `error 这台设备的浏览器没有可用的 WebGPU…`），语音识别不受影响 |
 | 端侧小模型（真机生成） | ⚠️ 需要你在**有显卡的 Chrome / Edge** 里确认（无头环境没有 WebGPU 适配器，SwiftShader 也跑不动 276MB 模型）：点 `[CLICK] TO START` 后控制台应出现 `[llm] 端侧模型已就绪：Qwen2.5-0.5B-Instruct-q4f16_1-MLC（跑在 GPU 上）`，然后说一句话，弹幕里应出现**蓝色**的回复 |
 | 记忆 / 人设 / 世界书（`memory.js`） | `node --check` 通过；**逻辑单测 47 项全过**（node + 假 DOM）：v2 / v1 / **PNG** 角色卡解析、卡内嵌世界书、世界书三种写法、关键词命中与不命中、`constant` 永远注入、`secondary_keys` 二级命中才注入、`enabled:false` 不注入、prompt 组装（system 在最前、历史进 prompt）、导出/导入往返、清空、非法输入拒绝、localStorage 写入结构。**无头 Chrome 实测 15 项**：面板点开/关闭、导入后人设/世界书/历史文案实时更新、`buildMessages` 含人设与世界书条目、`localStorage` 921 字节结构正确、导出结构正确。过程中修掉四个真 bug：数组自带 `.entries/.keys` 方法导致数组式世界书解析失败；v1 角色卡识别条件不足；内置人设用了 camelCase 字段名导致开场白丢失；`constant` 常驻条目会被 `maxWorldHits` 名额挤掉（已改为常驻不占名额） |
+| 语音播报（`tts.js`） | `node --check` 通过；**逻辑自测 44 项全过**（node + 假 DOM + 假 `speechSynthesis`）：流式分句（半句先不念 / 句末才念 / 只念新长出来的那段）、逐句排队与句间停顿、`lisaVoice.hold` 起播按上、播完放开、`guardMs` 内不打断、`bargeIn` 打开后一开口就停、开关与手动 `speak()`、音色优选（同语言 + `voiceHints`）、下拉只列同语言音色、设置写进 localStorage、空文本不炸。**无头 Chrome 真实环境 19 项全过**（真 DOM / 真事件 / 真 `getVoices()`，`speak()` 包一层以便断言）：22 个音色里自动挑中「Google 普通话（中国大陆）」、按钮 class 在开 / 关之间切换、面板试听与点叉关闭、清洗 `**你好**（笑）[emoji] 看看 https://… 还有 [官网](…)` → `你好 emoji 看看 还有 官网。` |
+| 语音播报（真人听感） | ⚠️ 需要你自己听一下：点 `[CLICK] TO START` → 说一句话 → 蓝字出现后应当**同时听到**她的声音；长按喇叭打开面板可换音色 / 调语速。若只出字没声音，先看面板里「音色」是不是空的（系统没装中文语音包） |
 
 ---
 
@@ -473,6 +571,11 @@ window.lisaMemory.openPanel(true)  // 打开面板
 | 导入角色卡没反应 / 提示"不是角色卡" | 面板底部会直接给原因：① 文件得是合法 JSON（PNG 卡走 `chara`/`ccv3` 块）；② 角色卡至少要有一个内容字段（`description` / `personality` / `scenario` / `system_prompt` / `first_mes`）；③ 带 `character_book` 的卡会连内嵌世界书一起收下 |
 | 世界书导入了但回答里没用上 | 世界书是**关键词命中**才注入：确认条目 `enabled` 不是 false、`keys` 里有你话里会出现的词（用 `lisaMemory.lastHits('你的一句话')` 看命中）；`constant:true` 的条目才是永远注入 |
 | 想换一套存档 / 彻底清干净 | 面板三个按钮分别清人设、世界书、对话记忆；换独立存档就改 `memory.js` 的 `storageKey`，或控制台 `localStorage.removeItem('lisa-memory-v1')` |
+| 播报：只出字、没有声音 | ① 右下角喇叭按钮是不是被关掉了（半透明、没有声波就是关着）；② 长按喇叭打开面板看「音色」列表：空的说明系统没装中文语音包（Windows：设置 → 时间和语言 → 语音 → 添加语音）；③ 控制台有没有 `[tts]` 开头的报错（`CFG.engine='server'` 时没配 `CFG.server.url` 会明确提示） |
+| 播报：她念到一半突然停 | 这段时间麦克风里出现了「在说话」的判定，而 `CFG.bargeIn` 被打开了（默认是 `false`）—— 音箱外放时她会被自己的声音打断：戴耳机，或把 `bargeIn` 改回 `false` |
+| 播报：她开始自问自答 | 静默闸门没起作用：确认 `asr.js` 是最新版（`window.lisaVoice.hold` 存在）、`CFG.selfListen` 为 `true`；应急可关掉 `CFG.bargeIn` 并把 `guardMs` 调大（如 `1500`） |
+| 播报：说话时「你说的」不被识别 | 这是**故意**的：播报期间 `asr.js` 的静默闸门会按住提交（防自激）。想边说边插话：戴耳机 + `CFG.bargeIn = true` |
+| 播报：想更自然的声音 | 浏览器内置合成是「能用、离线、零依赖」的水平；要更像人就把 `CFG.engine` 改成 `'server'` 并填 `CFG.server.url`，接自己起的本地 TTS（GPT-SoVITS / edge-tts / ChatTTS / CosyVoice 都行，只要 POST JSON 回来音频） |
 
 ---
 
@@ -484,6 +587,7 @@ window.lisaMemory.openPanel(true)  // 打开面板
 - **恢复原站对话层**：需要另外拿到官网的 `data-lisa-content` / `data-lisa-translations` JSON（本快照里已被运行时删除），再把两个 `x-template` 与 `data-module-lisa` 加回来。
 - **完全离线**：把表情视频下载到本地，替换 `LISA_EXPRESSIONS` / `sre` 为 `./xxx.mp4`，并把 `iu` 指向本地目录即可。
 - **接大模型 / 让 Lisa 回应你说的话**：`window.lisaVoice.listen(function (d) { /* d.text 就是整句 */ })`，在回调里调你自己的接口，拿到回复后可以再用 `We.setContent(...)` 换屏幕内容或 `We.setIdle()`（`We` 的可用方法见 `app.js` 里的 `LisaVisualizer`）。
+- **让她用别的声音说话**：`window.lisaTTS.setVoice('音色名')`（音色名取自 `lisaTTS.voices()`），或把 `tts.js` 的 `CFG.engine` 改成 `'server'` 接自己的 TTS 服务（`POST {text,voice,rate,pitch,lang}` → 音频二进制即可）；想让播报只在某些时候发生，就关掉 `CFG.autoSpeak`，用 `lisaTTS.speak()` 手动触发。
 
 ---
 
@@ -499,7 +603,7 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 | 事项 | 说明 |
 |---|---|
 | **加 `.nojekyll`** | 仓库根目录放一个空文件 `.nojekyll`，避免 GitHub Pages 用 Jekyll 处理时忽略/改写文件（本目录已放好） |
-| **仓库名用 ASCII** | 建议 `lisa-3d` 这类名字；当前文件夹名带空格和中文（`bendibanb - 副本`），URL 里会变成 `%20`/百分号编码，能用但难维护 |
+| **仓库名用 ASCII** | 建议 `lisa-3d` 这类名字；本目录名 `lisa` 已经是纯 ASCII，直接用即可（历史上它叫 `bendibanb - 副本`，带空格和中文，URL 里会变成 `%20`/百分号编码，能用但难维护） |
 | **把本目录内容推到仓库根** | 或者任意子目录都行（页面用的是相对路径）；Pages 设置里选对应分支/目录即可 |
 | **体积** | 现在约 **340 MB**：`llm/models/` 276 MB + `llm/web-llm.js` 6.6 MB + `llm/*.wasm` 4.6 MB、`vosk/model.vosk` 43.9 MB、`vosk/vosk.js` 5.8 MB、`ambient.mp3` 4 MB、`lisa.glb` 2.9 MB、`app.js` 2.9 MB。**GitHub 单文件 100 MB 的上限仍然满足**（最大单文件是 `params_shard_0.bin` 65 MB），但仓库 340MB，push/clone 会明显变慢；介意的话可把 `vosk/`、`llm/` 放到别的静态服务上，再把 `CFG.voskModel` 与 `llm.js` 里的 `modelUrl` / `modelLib` 改成绝对 URL |
 | **`启动本地服务.bat`** | 只在本地双击有用，推上去也不影响（可以删掉） |
@@ -517,6 +621,6 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 
 ## 9. 附
 
-- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层 + 记忆面板）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：离线 Vosk / 云端 Web Speech）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）、**新增 `memory.js`**（记忆 / 人设 / 世界书，纯 localStorage 缓存）。
+- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层 + 记忆面板 + 播报按钮与音色面板）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：离线 Vosk / 云端 Web Speech，另带给播报用的静默闸门 `lisaVoice.hold`）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）、**新增 `memory.js`**（记忆 / 人设 / 世界书，纯 localStorage 缓存）、**新增 `tts.js`**（语音播报：浏览器内置合成，离线零依赖；可选接本地 TTS 服务）。
 - 桌面上另有 `bendibanb\`（原始快照，未改动）与 `bendibanb.zip`，需要对照或回退时可用。
 - `app.js` 是压缩打包体，补丁以**独立段落注入**（只替换了 3 处字符串 + 在 `oP` 类后插入一段自包含代码），格式化/压缩工具不要再压缩这段，否则注释与可读结构会丢。
