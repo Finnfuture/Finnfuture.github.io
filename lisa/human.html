@@ -10,6 +10,9 @@
       2) 每次切换都会走原来的“闪屏”过渡（glitch + 代码窗口拉满后回落）；
       3) 鼠标向右移动 → 换屏幕右半边的表情视频，向左移动 → 换左半边，左右各自轮换；
       4) 鼠标静止 7~16 秒会像原来一样自动换一个表情或回到 setIdle() 随机内容。
+       5) 语音输入（VAD + ASR，实现见 asr.js，纯前端零依赖）：首次点击 / 按键之后自动开麦常听，
+          一说话就自动识别、边说边出字，停顿约 0.8s 自动收句；右下角麦克风按钮可随时开 / 关。
+          注意：浏览器只在 https 或 http://localhost 下才允许使用麦克风。
   · 必须通过本地 HTTP 服务访问（例如 `python -m http.server 8000` 或 `npx serve`）。
     直接双击以 file:// 打开时，浏览器会因 CORS 拦截 .glb / .mp4 / .mp3 / .exr 的加载。
 -->
@@ -177,6 +180,188 @@
             opacity: 0;
             pointer-events: none
         }
+
+        /* ==================================================================
+           语音输入（VAD + ASR）：麦克风按钮 / 声波 / 底部实时字幕 / 提示条
+           逻辑全在 asr.js 里（纯前端、零依赖，不改 app.js）
+           ================================================================== */
+
+        /* 右下角麦克风按钮：正好压在声音按钮（bottom:18px）上面 */
+        .c-lisa_voice {
+            position: fixed;
+            right: 18px;
+            bottom: 78px;
+            z-index: 2147483647;
+            width: 48px;
+            height: 48px;
+            padding: 0;
+            border: 0;
+            border-radius: 50%;
+            background: #000;
+            color: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: opacity .25s ease, background-color .25s ease, box-shadow .25s ease
+        }
+
+        .c-lisa_voice.is-off {
+            opacity: .5
+        }
+
+        .c-lisa_voice.is-load {
+            opacity: .7
+        }
+
+        .c-lisa_voice.is-bad {
+            background: #c62828;
+            opacity: 1
+        }
+
+        /* 说话中：按钮外面一圈脉冲，一眼能看出“正在听” */
+        .c-lisa_voice.is-speak {
+            opacity: 1;
+            animation: c-lisa_voice-pulse 1.15s ease-out infinite
+        }
+
+        @keyframes c-lisa_voice-pulse {
+            0% {
+                box-shadow: 0 0 0 0 rgba(0, 0, 0, .5)
+            }
+
+            70% {
+                box-shadow: 0 0 0 12px rgba(0, 0, 0, 0)
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(0, 0, 0, 0)
+            }
+        }
+
+        .c-lisa_voice svg {
+            fill: #fff;
+            width: 24px;
+            height: 24px;
+            display: block
+        }
+
+        /* 说话时替换图标的那 4 根声波（高度由 asr.js 按音量实时改） */
+        .c-lisa_voice-bars {
+            display: none;
+            align-items: flex-end;
+            height: 20px
+        }
+
+        .c-lisa_voice-bars i {
+            display: block;
+            width: 3px;
+            height: 3px;
+            margin-right: 3px;
+            border-radius: 2px;
+            background: #fff;
+            transition: height .08s linear
+        }
+
+        .c-lisa_voice-bars i:last-child {
+            margin-right: 0
+        }
+
+        /* 底部居中的实时字幕条（已定稿=白色，草稿=灰色 + 光标） */
+        .c-lisa_voice-bar {
+            position: fixed;
+            left: 50%;
+            bottom: 92px;
+            z-index: 2147483646;
+            transform: translate(-50%, 10px);
+            max-width: calc(100vw - 160px);
+            max-width: min(680px, calc(100vw - 160px));
+            padding: 10px 18px;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, .78);
+            color: #fff;
+            font-family: "HelveticaNowDisplay", system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+            font-size: 15px;
+            line-height: 1.6;
+            text-align: center;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity .3s ease, transform .3s ease
+        }
+
+        .c-lisa_voice-bar.is-show {
+            opacity: 1;
+            transform: translate(-50%, 0)
+        }
+
+        .c-lisa_voice-prev {
+            display: block;
+            font-size: 13px;
+            opacity: .5;
+            margin-bottom: 2px
+        }
+
+        .c-lisa_voice-draft {
+            opacity: .6
+        }
+
+        .c-lisa_voice-caret {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            margin-left: 2px;
+            background: #fff;
+            vertical-align: -2px;
+            animation: c-lisa_voice-caret .9s steps(1) infinite
+        }
+
+        @keyframes c-lisa_voice-caret {
+
+            0%,
+            49% {
+                opacity: 1
+            }
+
+            50%,
+            100% {
+                opacity: 0
+            }
+        }
+
+        /* 只有“麦克风被拒 / 连不上识别服务 / 浏览器不支持”时才出现的顶部提示条，点一下关掉 */
+        .c-lisa_voice-tip {
+            position: fixed;
+            left: 0;
+            right: 0;
+            top: 0;
+            z-index: 2147483647;
+            display: none;
+            padding: 14px 44px 16px 20px;
+            background: rgba(0, 0, 0, .9);
+            color: #fff;
+            font: 14px/1.75 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+            cursor: pointer
+        }
+
+        .c-lisa_voice-tip.is-show {
+            display: block
+        }
+
+        .c-lisa_voice-tip b {
+            color: #ffd166
+        }
+
+        .c-lisa_voice-tip code {
+            color: #8ecae6;
+            word-break: break-all
+        }
+
+        .c-lisa_voice-tip-close {
+            position: absolute;
+            right: 16px;
+            top: 12px;
+            opacity: .7
+        }
     </style>
 
     <link id="main-css" rel="stylesheet" href="./main.css" media="all"
@@ -213,6 +398,30 @@
                     <path d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z" />
                 </svg>
             </button>
+
+            <!-- 语音输入（VAD + ASR，纯前端）：
+                 点过 “[CLICK] TO START”（页面首次点击 / 按键）之后自动打开麦克风并进入 VAD 常听状态：
+                 一说话就自动开始识别、边说边出字，停顿约 0.8s 自动收句；再点这个按钮可随时关 / 开。
+                 实现全部在 ./asr.js 里（零依赖，不碰 app.js） -->
+            <button type="button" id="lisa-voice" class="c-lisa_voice is-off" aria-label="语音输入已关闭"
+                title="语音输入：点击开启">
+                <svg id="lisa-voice-icon" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z" />
+                    <path
+                        d="M19 11a1 1 0 0 0-2 0 5 5 0 0 1-10 0 1 1 0 0 0-2 0 7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11z" />
+                </svg>
+                <span class="c-lisa_voice-bars" id="lisa-voice-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </button>
+
+            <!-- 实时字幕：上一句（浅色）+ 本句定稿（白色）+ 草稿（灰色）+ 光标 -->
+            <div class="c-lisa_voice-bar" id="lisa-voice-bar" aria-live="polite">
+                <span class="c-lisa_voice-prev" id="lisa-voice-prev" style="display:none"></span><span
+                    class="c-lisa_voice-final" id="lisa-voice-final"></span><span class="c-lisa_voice-draft"
+                    id="lisa-voice-draft"></span><i class="c-lisa_voice-caret" aria-hidden="true"></i>
+            </div>
+
+            <!-- 语音出问题（权限被拒 / 连不上识别服务 / 浏览器不支持）时才出现的提示条，点一下关掉 -->
+            <div class="c-lisa_voice-tip" id="lisa-voice-tip" role="alert"></div>
         </div>
     </main>
 
@@ -348,6 +557,8 @@
                 box.appendChild(row('main.css（页面样式）', window.__lisaCssFailed ? '加载失败' : '已加载', cssOk));
                 box.appendChild(row('vendors.js（兼容垫片）', res.vendors === 'fail' ? '加载失败' : (res.vendors === 'ok' ? '已加载' : '未完成'), res.vendors === 'fail' ? false : (res.vendors === 'ok' ? true : null)));
                 box.appendChild(row('app.js（主程序 2.9MB）', res.appJs === 'fail' ? '加载失败' : (res.appJs === 'ok' ? '已加载' : '未完成'), res.appJs === 'fail' ? false : (res.appJs === 'ok' ? true : null)));
+                box.appendChild(row('asr.js（语音输入 VAD+ASR）', res.asr === 'fail' ? '加载失败' : (res.asr === 'ok' ? '已加载' : '未完成'), res.asr === 'fail' ? false : (res.asr === 'ok' ? true : null)));
+                box.appendChild(row('语音识别 API（Web Speech）', (window.SpeechRecognition || window.webkitSpeechRecognition) ? '可用' : '当前浏览器不支持', (window.SpeechRecognition || window.webkitSpeechRecognition) ? true : false));
                 box.appendChild(row('three.js 是否已执行', window.__THREE__ ? '是' : '否', window.__THREE__ ? true : false));
                 box.appendChild(row('3D 画布', cv ? (cv.width + '×' + cv.height) : '没有', cv ? true : false));
 
@@ -411,6 +622,11 @@
     <script src="./app.js" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.appJs='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.appJs='fail'"></script>
+
+    <!-- 语音输入（VAD + ASR，纯前端）：挂在 app.js 之后，只操作自己的 DOM，不影响 3D 的启动流程 -->
+    <script src="./asr.js" defer
+        onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='ok'"
+        onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='fail'"></script>
 
     <script>
         /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError 和 403，看着像“按钮坏了”）。

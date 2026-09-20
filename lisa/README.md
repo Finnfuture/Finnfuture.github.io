@@ -13,10 +13,11 @@
 
 | 文件 | 作用 | 备注 |
 |---|---|---|
-| `human.html` | 页面本身 | 已重写，454 行 / 16.7 KB → 见第 3 节 |
+| `human.html` | 页面本身 | 已重写，649 行 / 27.8 KB（含语音 UI）→ 见第 3 节 |
 | `app.js` | 主程序（three.js r165 + GSAP + hls.js 打包体） | 打了表情控制器补丁 |
 | `main.css` | 站点样式（含 CSS 变量、`.c-lisa*` 全部样式、字体） | 原样未改 |
 | `vendors.js` | 兼容性垫片（focus-visible、clipboard 等） | 原样 |
+| `asr.js` | **语音输入（VAD + ASR）**：麦克风音量检测 + 浏览器流式语音识别 | 本次新增，纯前端零依赖，见第 3.4 节 |
 | `lisa.glb` | **人物模型**（2.9 MB） | 网页加载 `./lisa.glb` |
 | `envmap.exr` | 环境贴图（HDR） | 网页加载 `./envmap.exr` |
 | `running_code.mp4` | 屏幕上的「代码窗口」贴图视频（闪屏用） | 本地文件 |
@@ -51,9 +52,12 @@ npx serve -l 8000
     main > .c-lisa.is-compact
         ├─ <audio id="lisa-ambient" src="./ambient.mp3" loop>
         ├─ <div class="c-lisa_visualizer" data-module-lisa-visualizer>   ← 3D 画布挂载点
-        └─ <button class="c-lisa_sound" id="lisa-sound">                  ← 声音开关
+        ├─ <button class="c-lisa_sound" id="lisa-sound">                  ← 声音开关
+        ├─ <button class="c-lisa_voice" id="lisa-voice">                  ← 语音输入开关（说话时图标变声波）
+        ├─ <div class="c-lisa_voice-bar" id="lisa-voice-bar">             ← 底部实时字幕（上一句 / 定稿 / 草稿 + 光标）
+        └─ <div class="c-lisa_voice-tip" id="lisa-voice-tip">             ← 只在语音出错时出现的提示条
     window.preloaderEnterPromise / window.preloaderPromise                ← app.js 启动必需
-    ./vendors.js、./app.js
+    ./vendors.js、./app.js、./asr.js
 ```
 
 ### 2.2 app.js 的启动链路（为什么要保留那几个元素）
@@ -76,6 +80,7 @@ npx serve -l 8000
 | 鼠标静止 7~16 秒 | 65% 概率自动换一个表情（整屏）；35% 概率走原版 `We.setIdle()`（`sre` 随机内容 + 故障参数回落） |
 | 点击模型画面 | 人物做一次「后仰」动作（原站 `We.click()` → `moveBack()`） |
 | 右下角声音按钮 | 当前没声音 → 点它开始播放；正在响 → 点它静音（状态记忆在 `localStorage['lisa-muted']`） |
+| **语音输入（VAD + ASR）** | 点过 `[CLICK] TO START` 之后**自动开麦常听**：一说话就自动识别、边说边出字，停顿 ≈0.8s 自动收句；右下角麦克风按钮可随时开 / 关（详见第 3.4 节） |
 
 ---
 
@@ -164,6 +169,38 @@ var LISA_GLITCH_OFF = { screenGlitchFrequency: .05, screenGlitchIntensity: 0, di
   - `start()` 里先把 `audio.muted = false` 强制解开（防止元素级静音卡死）；
   - 一旦 `play()` 被浏览器拦下，会打印 `[sound] play() 被浏览器拦截：NotAllowedError`，并在**下一次点击/按键**自动重试（点在按钮上的手势会跳过，避免与按钮自身切换抢跑）。
 
+### 3.4 `asr.js`（本次新增）：语音输入 = VAD + ASR，纯前端零依赖
+
+本页没有后端、也没有构建工具，所以全部用浏览器自带能力实现，**一行都没改 `app.js`**：
+
+| 环节 | 用什么 | 说明 |
+|---|---|---|
+| **VAD** | `getUserMedia` + `AudioContext` + `AnalyserNode` | 每帧取时域数据算 RMS → dB，再用「自适应噪声底 + SNR 阈值 + 悬挂时间」判断人声区间（自己写的，不引第三方库） |
+| **ASR** | `SpeechRecognition` / `webkitSpeechRecognition` | `continuous = true` + `interimResults = true`，是**流式**的：草稿（`isFinal = false`）反复刷新，定稿（`isFinal = true`）一次性追加 |
+| **展示** | `human.html` 里新增的 DOM | 右下角麦克风按钮（说话时图标换成 4 根跳动声波）+ 底部居中字幕（上一句浅色、定稿白色、草稿灰色 + 闪烁光标） |
+
+**触发链路**：`[CLICK] TO START`（首次 `pointerdown` / `keydown`）→ 400ms 后自动 `getUserMedia` 开麦 → 进入 VAD 常听 → 能量持续超阈值 **80ms** 就提前启动识别器（抵消识别器 0.2~0.4s 的启动延迟）→ 持续 **150ms** 判定「正在说话」→ 静音 **800ms** 判定「说完了」→ 调 `recognition.stop()` 让浏览器把最后一段 flush 成定稿 → 在 `onend` 里提交整句（写进字幕 + 派发事件）。
+
+**默认是「VAD 门控」模式**（`CFG.vadGate = true`）：平时识别器是关着的，只有检测到有人说话才开 —— 省电，也不会把环境音一直传到云端。想改成「识别器常开」（不丢句首那一两个字，代价是环境音会被持续上传）就把 `CFG.vadGate` 改成 `false`。
+
+**对外接口**（以后想接大模型、或让 Lisa 听到话就做动作，都从这里接）：
+
+```js
+window.lisaVoice.listen(function (d) { console.log(d.text); });  // 每说完一句回调一次
+window.addEventListener('lisa-voice', function (e) { console.log(e.detail); }); // 或者监听 window 事件
+window.lisaVoice.state();          // { armed, on, speaking, recognizing, levelDb, noiseDb, last, draft }
+window.lisaVoice.disable();        // 关掉麦克风（保护隐私）
+window.lisaVoice.setLang('en-US'); // 换识别语言
+```
+
+`detail` 形如 `{ type: 'utterance' | 'partial', text: '…', draft: false }`。
+
+**三个必须知道的限制**：
+
+1. **只在 `https` / `http://localhost` 下能用**。桌面用 `http://127.0.0.1:8000/human.html` 没问题；手机用 `启动本地服务.bat` 给出的 `http://192.168.x.x:8000` 属于**不安全上下文**，Chrome 会直接拒绝麦克风（页面会自己弹中文提示；临时办法是把该地址加进 `chrome://flags/#unsafely-treat-insecure-origin-as-secure` 白名单后重启浏览器）。
+2. **「识别」这一步在云端**：Chrome 走 Google、Edge 走微软。所谓纯前端 = 不需要你自己的后端，但**断网就用不了**，国内网络也可能连不上（控制台会看到 `network` 错误，页面会提示）。想真正离线、音频不出本机，需要把 `asr.js` 里的识别层换成 Vosk / Whisper 那类 WASM 本地模型。
+3. **Firefox 没有 Web Speech API**（会提示「当前浏览器不支持语音识别」）；Safari 与微信内置浏览器的支持也不完整，建议用 Chrome / Edge。
+
 ---
 
 ## 4. 可调参数速查
@@ -202,6 +239,23 @@ var LISA_GLITCH_OFF = { screenGlitchFrequency: .05, screenGlitchIntensity: 0, di
 - 全部是 HLS（`.m3u8`）：Chrome/Edge 由打包进 `app.js` 的 hls.js 播放，Safari 用原生播放。
 - **必须联网**（国内网络能否直连 mux CDN 取决于你的网络环境，必要时把地址换成自己的 CDN / 本地文件）。
 
+### 4.4 语音输入参数（都在 `asr.js` 顶部的 `CFG` 里，改完刷新即可）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `lang` | `'zh-CN'` | 识别语言（中文普通话；要英文改 `'en-US'`，也可运行时 `lisaVoice.setLang()`） |
+| `vadGate` | `true` | `true` = 检测到人声才开识别器（省电、不上传环境音）；`false` = 识别器常开（不丢句首，但一直上传音频） |
+| `preStartMs` | `80` | 能量超阈值多少毫秒就**提前**启动识别器（越大越省，越小越不容易丢句首） |
+| `minSpeechMs` | `150` | 持续多久算「真的在说话」（调大能压掉敲键盘、咳嗽之类的误触发） |
+| `hangMs` | `800` | 静音多久算「这句话说完了」（觉得收句太急就调大，例如 `1200`） |
+| `snrDb` | `9` | 高于环境噪声底多少 dB 算人声（环境吵、容易误触发就调大到 `12`） |
+| `minFloorDb` / `maxFloorDb` | `-62` / `-34` | 自适应噪声底的上下限 |
+| `captionHoldMs` | `5000` | 说完之后字幕再保留多久（毫秒） |
+| `restartDelayMs` / `retryNetworkMs` | `350` / `6000` | 识别器被浏览器结束后 / 网络错误后的重启间隔 |
+| `preStartGiveUpMs` | `2500` | 提前启动后多久还没确认在说话，就认作误触发并把识别器停掉 |
+
+界面尺寸、颜色都在 `human.html` 的内联样式里：`.c-lisa_voice`（右下角按钮，`bottom: 78px`）、`.c-lisa_voice-bar`（底部字幕条，`bottom: 92px`）、`.c-lisa_voice-tip`（错误提示条）；声波柱数量就是 `#lisa-voice-bars` 里的 `<i>` 个数（现在是 4 根）。
+
 ---
 
 ## 5. 已经跑过的验证（headless Chrome + 本地 HTTP）
@@ -217,6 +271,8 @@ var LISA_GLITCH_OFF = { screenGlitchFrequency: .05, screenGlitchIntensity: 0, di
 | 声音按钮 | ① 静音态点一下 → 开始播放 ② 播放中点一下 → 静音 ③ 静音后点模型 → **保持静音**（不被自动播放打开） ④ 再点 → 恢复播放 ⑤ 带 `lisa-muted=true` 刷新 → 保持静音 |
 | 按钮显示（逐像素字符画） | 播放中＝白圆+黑图标；静音中＝黑底+白图标，两个状态都清晰可见 |
 | 语法 | `node --check app.js` 通过 |
+| 语音输入（`asr.js`） | `node --check` 通过；另外用「假 DOM + 假 Web Audio + 假 SpeechRecognition」的脚本把 **VAD→ASR 全链路真跑了一遍**，20+ 项断言全过：手势后自动开麦（连点只申请一次）→ 静音期间**不会**启动识别器 → 能量起来自动启动 → 草稿上屏 → 停顿自动收句 → 定稿提交并派发 `lisa-voice` 事件 → 关麦时释放麦克风轨道；此外还用无头 Chrome 打开真实页面，确认 `asr.js` 与 `app.js` 共存无报错、API 正常挂载 |
+| 语音输入（真机） | ⚠️ 需要你自己在本机 Chrome / Edge 点一下确认（headless 环境没有麦克风）：打开页面 → 点 `[CLICK] TO START` → 浏览器询问麦克风时选「允许」→ 对麦克风说一句中文 → 底部应实时出字、停顿后定稿 |
 
 ---
 
@@ -233,6 +289,11 @@ var LISA_GLITCH_OFF = { screenGlitchFrequency: .05, screenGlitchIntensity: 0, di
 | 点按钮"没反应 / 状态不变" | ① 先 **Ctrl+F5 强刷**（旧 human.html 有缓存）；② 看控制台是否有 `[sound] play() 被浏览器拦截`：有说明浏览器不认这次播放，点一下页面任意处会自动重试；③ 屏幕上的按钮应在"喇叭+声波（无白环）"与"喇叭+叉（带白环）"之间切换，若完全无变化说明文件还是旧的 |
 | 想临时调参 | 在控制台直接改 `localStorage` 不生效（这些参数是编译进 `app.js` 的常量），需编辑 `app.js` 里那一小段后再刷新 |
 | 控制台出现 `AbortError: play() request was interrupted` | 已用 `HTMLMediaElement.play` 包装静音；若仍看到，说明是页面里其他播放器抛的 |
+| 语音：点过 `[CLICK] TO START` 后没有任何反应 | 先看控制台有没有 `[voice] …` 输出：①「麦克风权限被拒」→ 点地址栏的锁图标把麦克风改成允许并刷新；②「必须用 https 或 http://localhost 打开」→ 手机用局域网 IP 访问属于不安全上下文（见第 3.4 节） |
+| 语音：能出几个字就断，或提示「连不上语音识别服务」 | Web Speech 的识别在云端（Chrome→Google、Edge→微软），断网 / 被墙就是 `network` 错误：确认能上外网，或改成 Vosk / Whisper 本地模型 |
+| 语音：句首一两个字没识别出来 | 用的是「VAD 门控」模式，识别器启动有 0.2~0.4s 延迟：把 `CFG.preStartMs` 调小（如 `40`），或把 `CFG.vadGate` 改成 `false`（识别器常开） |
+| 语音：环境吵时乱触发 / 收句太快太频繁 | 把 `CFG.snrDb`（默认 9）、`CFG.minSpeechMs`（默认 150）、`CFG.hangMs`（默认 800）按需要调大 |
+| 不想让它一直听麦克风 | 点右下角麦克风按钮关闭（会释放麦克风轨道）；或把 `human.html` 里 `<script src="./asr.js" defer …>` 那行注释掉 |
 
 ---
 
@@ -243,6 +304,7 @@ var LISA_GLITCH_OFF = { screenGlitchFrequency: .05, screenGlitchIntensity: 0, di
 - **改回「点哪里都换表情」**：在 `lisaBoot()` 里给 `We.$wrapper` 加 `click` 监听调用 `lisaShow(++index, "both")`。
 - **恢复原站对话层**：需要另外拿到官网的 `data-lisa-content` / `data-lisa-translations` JSON（本快照里已被运行时删除），再把两个 `x-template` 与 `data-module-lisa` 加回来。
 - **完全离线**：把表情视频下载到本地，替换 `LISA_EXPRESSIONS` / `sre` 为 `./xxx.mp4`，并把 `iu` 指向本地目录即可。
+- **接大模型 / 让 Lisa 回应你说的话**：`window.lisaVoice.listen(function (d) { /* d.text 就是整句 */ })`，在回调里调你自己的接口，拿到回复后可以再用 `We.setContent(...)` 换屏幕内容或 `We.setIdle()`（`We` 的可用方法见 `app.js` 里的 `LisaVisualizer`）。
 
 ---
 
@@ -273,6 +335,6 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 
 ## 9. 附
 
-- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；只改了 `human.html`（重写）与 `app.js`（三类补丁）。
+- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；改动一共三处：`human.html`（重写 + 语音 UI）、`app.js`（三类补丁）、**新增 `asr.js`（语音输入 VAD + ASR，独立于 `app.js`）**。
 - 桌面上另有 `bendibanb\`（原始快照，未改动）与 `bendibanb.zip`，需要对照或回退时可用。
 - `app.js` 是压缩打包体，补丁以**独立段落注入**（只替换了 3 处字符串 + 在 `oP` 类后插入一段自包含代码），格式化/压缩工具不要再压缩这段，否则注释与可读结构会丢。
