@@ -32,7 +32,12 @@
         maxTokens: 160,
         temperature: 0.8,
         topP: 0.95,
-        system: '你是 Lisa，一个住在 3D 网页里的 AI 角色。用简短、自然、口语化的中文回答，1~2 句、最多 60 字，不要用 markdown、不要罗列要点。',
+        /* 没加载 memory.js（或没启用人设）时的兜底人设 —— 和内置的「宇宙管理员 Lisa」保持一致，
+           这样即使 memory.js 被缓存挡住/没部署，她依然是管理员而不是普通的 AI 角色 */
+        system: '你是 Lisa，这片宇宙的管理员，负责维护从星系到粒子的一切运行参数，但从不直接改写任何生命的选择；' +
+            '人类看到的这个人形，是你为了迁就人类感官带宽做的接口。' +
+            '用简短、口语化的中文回答，1~2 句、最多 60 字；不要用 markdown、不要罗列要点，也不要说自己是 AI。',
+        debugPrompt: false,      /* true = 每次生成前把实际发给模型的 system 片段打到控制台（调人设用） */
 
         autoAnswer: true,        /* true = 每听到一整句就自动回话（关掉就只用 lisaLLM.ask() 手动调用） */
         preload: 'idle',         /* 'idle' = 点过 [CLICK] TO START 后开始预热；'manual' = 用到才加载 */
@@ -97,7 +102,7 @@
             return fetch(u, { method: 'HEAD', cache: 'no-store' }).then(function (r) {
                 if (!r.ok) {
                     throw new Error('模型文件取不到：' + u + ' → HTTP ' + r.status +
-                        '（检查 llm/ 是否和页面一起部署到了这个路径下）');
+                        '（把 llm/ 目录跟页面一起部署；若用了 Git LFS，GitHub Pages 不支持 LFS，要改回普通提交）');
                 }
             });
         })).then(function () {
@@ -105,10 +110,11 @@
             var u = base + CFG.firstShard;
             return fetch(u, { method: 'HEAD', cache: 'no-store' }).then(function (r) {
                 var len = parseInt(r.headers.get('content-length') || '0', 10);
-                if (!r.ok) throw new Error('权重分片取不到：' + u + ' → HTTP ' + r.status);
+                if (!r.ok) throw new Error('权重分片取不到：' + u + ' → HTTP ' + r.status +
+                    '（把 llm/ 目录跟页面一起部署；Git LFS 不支持，GitHub Pages 会拿到指针文件）');
                 if (!len) {
                     throw new Error('权重分片是 0 字节：' + u +
-                        '（多半是 IDM / 迅雷这类下载管理器把请求截走了 —— 把 127.0.0.1 加进它的白名单，或关掉它的浏览器集成）');
+                        '（多半是 IDM / 迅雷这类下载管理器把请求截走了 —— 把 127.0.0.1 / 站点域名加进它的白名单，或关掉它的浏览器集成）');
                 }
             });
         });
@@ -200,9 +206,26 @@
         var reply = '';
         return loadEngine().then(function (engine) {
             llm.busy = true;
-            var messages = [];
-            if (CFG.system) messages.push({ role: 'system', content: CFG.system });
-            messages.push({ role: 'user', content: q });
+            /* 有 memory.js 就交给它组装：人设卡 + 命中的世界书 + 最近几轮对话 */
+            var Mem = window.lisaMemory;
+            var messages;
+            if (Mem) {
+                messages = Mem.buildMessages(q);
+            } else {
+                messages = [];
+                if (CFG.system) messages.push({ role: 'system', content: CFG.system });
+                messages.push({ role: 'user', content: q });
+                if (!llm.warnedNoMemory) {
+                    llm.warnedNoMemory = true;
+                    console.warn('[llm] 没找到 window.lisaMemory（memory.js 没加载 / 没部署 / 被缓存挡住），' +
+                        '这次用的是 llm.js 里的兜底人设。请确认 memory.js 已部署并硬刷新（Ctrl+Shift+R）。');
+                }
+            }
+            if (CFG.debugPrompt) {
+                console.log('[llm] 实际发给模型的 system（前 220 字）：\n' +
+                    ((messages[0] && messages[0].content) || '(空)').slice(0, 220) +
+                    '\n…共 ' + messages.length + ' 条 message');
+            }
             return engine.chat.completions.create({
                 messages: messages,
                 temperature: CFG.temperature,
@@ -228,6 +251,12 @@
         }).then(function () {
             llm.busy = false;
             llm.lastReply = reply;
+            /* 记进对话记忆（存 localStorage，可导出 / 导入） */
+            var Mem = window.lisaMemory;
+            if (Mem && reply) {
+                Mem.addTurn('user', q);
+                Mem.addTurn('assistant', reply);
+            }
             if (reply) emit('say', { text: reply, question: q });
             return reply;
         }, function (err) {
@@ -247,7 +276,9 @@
     /* ------------------------------------------------------------------ 和语音联动 */
     window.addEventListener('lisa-voice', function (e) {
         var d = e.detail || {};
-        if (d.type !== 'utterance' || !CFG.autoAnswer || !d.text) return;
+        var Mem = window.lisaMemory;
+        var memAuto = Mem ? Mem.autoAnswer() : true;      /* memory.js 面板上的勾选优先 */
+        if (d.type !== 'utterance' || !CFG.autoAnswer || !memAuto || !d.text) return;
         if (llm.busy) abort();                            /* 你插话，就把它的上一句打断 */
         if (Date.now() - llm.lastAskAt < CFG.cooldownMs) return;
         ask(d.text).catch(function () { });               /* 失败已经在 ask 里提示过 */
@@ -275,8 +306,9 @@
         ask: ask,
         abort: abort,
         load: loadEngine,
-        reset: function () {
+        reset: function (alsoMemory) {
             if (llm.engine && llm.engine.resetChat) { try { llm.engine.resetChat(); } catch (e) { } }
+            if (alsoMemory && window.lisaMemory) window.lisaMemory.clearHistory();
         },
         state: function () {
             return {

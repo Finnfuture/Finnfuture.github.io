@@ -26,6 +26,12 @@
           听到你说完一整句就用显卡生成回复，回复以流式打字进入上面的对白层（蓝色）。
           需要 Chrome / Edge 113+（WebGPU）；模型在显存里约占 950MB，首次编译着色器要十几秒，
           之后走 IndexedDB 缓存。接口：window.lisaLLM.ask/state/abort/reset，事件 'lisa-llm'。
+       9) 记忆 / 人设 / 世界书（memory.js）：右下角那个「书」按钮打开面板 ——
+          导入角色卡（SillyTavern v1/v2 的 JSON 或 PNG，卡里自带的世界书会一起收进来）、
+          导入世界书（world info JSON，关键词命中才注入，可叠多本）、导出 / 导入记忆包
+          （人设 + 世界书 + 对话历史一份 JSON）；文件也可以直接拖到页面上导入。
+          这三样全部缓存在 localStorage（键 lisa-memory-v1），刷新不丢、不上传任何地方。
+
   · 必须通过本地 HTTP 服务访问（例如 `python -m http.server 8000` 或 `npx serve`）。
     直接双击以 file:// 打开时，浏览器会因 CORS 拦截 .glb / .mp4 / .mp3 / .exr 的加载。
 -->
@@ -435,6 +441,125 @@
         #lisa-say .c-lisa-step_dialog:last-child {
             margin-bottom: 0
         }
+
+        /* ==================================================================
+           记忆 / 人设 / 世界书面板（memory.js 驱动）—— 风格跟右下角那几个按钮一致
+           ================================================================== */
+        #lisa-memory-btn {
+            bottom: 138px
+        }
+
+        #lisa-memory-btn svg {
+            width: 24px;
+            height: 24px;
+            display: block
+        }
+
+        .c-lisa_memory {
+            position: fixed;
+            right: 18px;
+            bottom: 200px;
+            z-index: 2147483645;
+            width: 370px;
+            max-width: calc(100vw - 36px);
+            max-height: min(72vh, 540px);
+            overflow: auto;
+            padding: 14px 16px 16px;
+            border-radius: 14px;
+            background: rgba(0, 0, 0, .9);
+            color: #fff;
+            font: 13px/1.7 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+            box-shadow: 0 18px 50px rgba(0, 0, 0, .35);
+            -webkit-backdrop-filter: blur(8px);
+            backdrop-filter: blur(8px);
+            display: none
+        }
+
+        .c-lisa_memory.is-open {
+            display: block
+        }
+
+        .c-lisa_memory-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 14px;
+            margin-bottom: 10px
+        }
+
+        .c-lisa_memory-close {
+            cursor: pointer;
+            opacity: .7;
+            padding: 0 4px
+        }
+
+        .c-lisa_memory-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 8px
+        }
+
+        .c-lisa_memory-btn {
+            margin: 0 8px 6px 0;
+            padding: 6px 10px;
+            border: 1px solid rgba(255, 255, 255, .35);
+            border-radius: 8px;
+            background: rgba(255, 255, 255, .08);
+            color: #fff;
+            font: inherit;
+            cursor: pointer;
+            transition: background .2s ease
+        }
+
+        .c-lisa_memory-btn:hover {
+            background: rgba(255, 255, 255, .18)
+        }
+
+        .c-lisa_memory-file {
+            opacity: .72;
+            word-break: break-all
+        }
+
+        .c-lisa_memory-check {
+            display: flex;
+            align-items: center;
+            margin: 6px 0 10px;
+            cursor: pointer
+        }
+
+        .c-lisa_memory-check input {
+            margin: 0 8px 0 0
+        }
+
+        .c-lisa_memory-hint {
+            padding-top: 8px;
+            border-top: 1px solid rgba(255, 255, 255, .15);
+            opacity: .62;
+            font-size: 12px
+        }
+
+        .c-lisa_memory-hint code {
+            color: #8ecae6
+        }
+
+        /* 整页拖入文件时的提示层 */
+        .c-lisa_drop {
+            position: fixed;
+            inset: 0;
+            z-index: 2147483647;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, .55);
+            color: #fff;
+            font: 16px/1.6 system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+            pointer-events: none
+        }
+
+        .c-lisa_drop.is-on {
+            display: flex
+        }
     </style>
 
     <link id="main-css" rel="stylesheet" href="./main.css" media="all"
@@ -497,6 +622,17 @@
                 <span class="c-lisa_voice-bars" id="lisa-voice-bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
             </button>
 
+            <!-- 记忆 / 人设 / 世界书：点开右侧面板（memory.js 驱动）
+                 人设 = 角色卡（SillyTavern v1/v2 的 JSON 或 PNG），世界书 = world info JSON，
+                 记忆 = 对话历史，全部缓存在这台浏览器里（localStorage），可导出 / 导入 -->
+            <button type="button" id="lisa-memory-btn" class="c-lisa_voice is-off" aria-label="记忆与人设"
+                title="记忆 / 人设 / 世界书">
+                <svg viewBox="0 0 24 24" aria-hidden="true" style="fill:#fff">
+                    <path d="M4 4.6h5.9c1 0 1.8.8 1.8 1.8v12.2c0-.7-.8-1.3-1.8-1.3H4V4.6z" />
+                    <path d="M20 4.6h-5.9c-1 0-1.8.8-1.8 1.8v12.2c0-.7.8-1.3 1.8-1.3H20V4.6z" />
+                </svg>
+            </button>
+
             <!-- 实时字幕：上一句（浅色）+ 本句定稿（白色）+ 草稿（灰色）+ 光标 -->
             <div class="c-lisa_voice-bar" id="lisa-voice-bar" aria-live="polite">
                 <span class="c-lisa_voice-prev" id="lisa-voice-prev" style="display:none"></span><span
@@ -506,6 +642,48 @@
 
             <!-- 语音出问题（权限被拒 / 连不上识别服务 / 浏览器不支持）时才出现的提示条，点一下关掉 -->
             <div class="c-lisa_voice-tip" id="lisa-voice-tip" role="alert"></div>
+
+            <!-- ======================================================================
+                 记忆 / 人设 / 世界书面板（memory.js 驱动）
+                 · 人设：SillyTavern 风格角色卡（PNG 或 JSON，v1/v2）
+                 · 世界书：world info JSON（关键词命中才注入，可多本）
+                 · 记忆：对话历史，可导出 / 导入 JSON
+                 · 缓存：全部存 localStorage（刷新不丢，不上传任何地方）
+                 ====================================================================== -->
+            <div class="c-lisa_memory" id="lisa-memory" role="dialog" aria-label="记忆与人设">
+                <div class="c-lisa_memory-head">
+                    <b>记忆 / 人设 / 世界书</b>
+                    <span class="c-lisa_memory-close" id="lisa-memory-close" title="关闭">✕</span>
+                </div>
+                <div class="c-lisa_memory-row">
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-profile-import">导入人设 / 角色卡</button>
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-profile-clear">恢复内置</button>
+                    <span class="c-lisa_memory-file" id="lisa-profile-name">Lisa（内置 · 宇宙管理员）</span>
+                </div>
+                <div class="c-lisa_memory-row">
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-world-import">导入世界书</button>
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-world-clear">恢复内置</button>
+                    <span class="c-lisa_memory-file" id="lisa-world-info">1 本 / 9 条（含内置）</span>
+                </div>
+                <div class="c-lisa_memory-row">
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-mem-export">导出记忆</button>
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-mem-import">导入记忆</button>
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-mem-clear">清空记忆</button>
+                    <span class="c-lisa_memory-file" id="lisa-history-info">历史 0 条</span>
+                </div>
+                <label class="c-lisa_memory-check"><input type="checkbox" id="lisa-autoanswer" checked> 听到一整句就自动回话</label>
+                <div class="c-lisa_memory-hint" id="lisa-memory-hint">
+                    内置人设 + 世界书：<b>Lisa —— 这片宇宙的管理员</b>，以人类能理解的形象出现；
+                    点「恢复内置」可随时还原。<br>
+                    也可以导入自己的：角色卡支持 PNG（SillyTavern 导出的 .png）与 JSON（v1 / v2）；
+                    世界书支持 world info JSON（<code>entries</code> 对象或数组）；文件能直接拖到页面上。<br>
+                    记忆 = 人设 + 世界书 + 对话历史，只存在这台浏览器里（localStorage），刷新不丢、不外传。
+                </div>
+                <input type="file" id="lisa-file-input" style="display:none">
+            </div>
+
+            <!-- 整页拖入文件时的提示层 -->
+            <div class="c-lisa_drop" id="lisa-drop">松手导入：角色卡（PNG / JSON）或世界书 / 记忆（JSON）</div>
         </div>
     </main>
 
@@ -644,6 +822,7 @@
                 box.appendChild(row('asr.js（语音输入 VAD+ASR）', res.asr === 'fail' ? '加载失败' : (res.asr === 'ok' ? '已加载' : '未完成'), res.asr === 'fail' ? false : (res.asr === 'ok' ? true : null)));
                 box.appendChild(row('语音识别 API（Web Speech）', (window.SpeechRecognition || window.webkitSpeechRecognition) ? '可用' : '当前浏览器不支持', (window.SpeechRecognition || window.webkitSpeechRecognition) ? true : false));
                 box.appendChild(row('llm.js（端侧 GPU 小模型）', res.llm === 'fail' ? '加载失败' : (res.llm === 'ok' ? '已加载' : '未完成'), res.llm === 'fail' ? false : (res.llm === 'ok' ? true : null)));
+                box.appendChild(row('memory.js（记忆/人设/世界书）', res.memory === 'fail' ? '加载失败' : (res.memory === 'ok' ? '已加载' : '未完成'), res.memory === 'fail' ? false : (res.memory === 'ok' ? true : null)));
                 box.appendChild(row('WebGPU（小模型要用的）', navigator.gpu ? '可用' : '当前浏览器不可用', !!navigator.gpu));
                 box.appendChild(row('three.js 是否已执行', window.__THREE__ ? '是' : '否', window.__THREE__ ? true : false));
                 box.appendChild(row('3D 画布', cv ? (cv.width + '×' + cv.height) : '没有', cv ? true : false));
@@ -711,13 +890,18 @@
 
     <!-- 语音输入（VAD + ASR，纯前端）：挂在 app.js 之后，只操作自己的 DOM，不影响 3D 的启动流程
          ?v= 这个小版本号是用来破浏览器"启发式缓存"的：脚本一改就把它加一，普通刷新也能拿到新版 -->
-    <script src="./asr.js?v=3" defer
+    <script src="./asr.js?v=6" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='fail'"></script>
 
+    <!-- 记忆 / 人设 / 世界书：导入角色卡（PNG / JSON）与世界书，对话记忆存浏览器、可导出导入 -->
+    <script src="./memory.js?v=6" defer
+        onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.memory='ok'"
+        onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.memory='fail'"></script>
+
     <!-- 端侧 GPU 小模型（WebGPU / WebLLM，Qwen2.5-0.5B-Instruct q4f16）：
          引擎、WebGPU 计算库、模型权重全在 ./llm/ 里，断网可用；听到你说完一整句就用显卡生成回复 -->
-    <script src="./llm.js?v=3" defer
+    <script src="./llm.js?v=6" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='fail'"></script>
 

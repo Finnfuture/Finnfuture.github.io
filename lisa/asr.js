@@ -664,6 +664,26 @@
         });
     }
 
+    /* 相对路径转绝对 URL（报错信息里好定位） */
+    function abs(u) {
+        try { return new URL(u, location.href).href; } catch (e) { return u; }
+    }
+
+    /* 加载前先 HEAD 探一下 vosk.js 和模型：部署到 GitHub Pages 时最常忘的就是
+       把 vosk/ 一起推上去；另外 Git LFS 传的大文件在 Pages 上会变成指针（也表现为 404/坏文件） */
+    function checkVoskAssets() {
+        var list = [abs(CFG.voskScript), abs(CFG.voskModel)];
+        return Promise.all(list.map(function (u) {
+            return fetch(u, { method: 'HEAD', cache: 'no-store' }).then(function (r) {
+                if (!r.ok) {
+                    throw new Error('离线语音模型取不到：' + u + ' → HTTP ' + r.status +
+                        '（把 vosk/ 目录跟页面一起部署；若用了 Git LFS，GitHub Pages 不支持 LFS，' +
+                        '需要改回普通提交或换静态托管）');
+                }
+            });
+        }));
+    }
+
     /* 加载 vosk.js + 模型（共用同一个 Promise，重复调用不会重复加载） */
     function loadVosk() {
         if (vosk.loading) return vosk.loading;
@@ -677,7 +697,9 @@
             })
             .then(function (lib) {
                 vosk.lib = lib;
-                return lib.createModel(CFG.voskModel);     /* 40MB 本地文件，首次解包几秒 */
+                return checkVoskAssets().then(function () {
+                    return lib.createModel(CFG.voskModel);     /* 本地文件，首次解包几秒 */
+                });
             })
             .then(function (model) {
                 vosk.model = model;

@@ -21,6 +21,7 @@
 | `vosk/vosk.js` | **离线识别引擎**（vosk-browser 单文件构建，WASM + Worker 已内联） | 5.8 MB，本地文件 |
 | `vosk/model.vosk` | **中文语音模型**（= 官方 `vosk-model-small-cn-0.22.tar.gz`，只改了扩展名） | 43.9 MB，本地文件；叫 `.tar.gz` 会被 IDM 拦截，故改名 |
 | `llm.js` | **端侧 GPU 小模型**（WebGPU / WebLLM）：听到你说完一整句就用显卡生成回复 | 本次新增，见第 3.5 节 |
+| `memory.js` | **记忆 / 人设 / 世界书**：导入角色卡（PNG/JSON）与世界书、对话记忆本地缓存与导出导入 | 本次新增，见第 3.6 节 |
 | `llm/web-llm.js` | WebLLM 引擎（MLC 的浏览器端推理库，ESM） | 6.6 MB，本地文件 |
 | `llm/Qwen2-0.5B-…-webgpu.wasm` | 该模型对应的 WebGPU 计算库 | 4.6 MB，本地文件 |
 | `llm/models/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/v2/` | 模型权重（q4f16 量化，14 个分片） | 276 MB，本地文件；**`resolve/<段>` 这层是 WebLLM 的规则，别删** |
@@ -278,6 +279,53 @@ window.addEventListener('lisa-llm', function (e) { console.log(e.detail); });  /
 
 想让它"只听不说"（不自动回话），把 `CFG.autoAnswer` 改成 `false`；想改成"用到才加载"，把 `CFG.preload` 改成 `'manual'`。
 
+### 3.6 `memory.js`（本次新增）：记忆 / 人设 / 世界书
+
+让 Lisa 变成"有设定的角色"：右下角那个**书**图标打开面板，可以导入角色卡、世界书，把对话记忆导出/导入；三样数据全部缓存在**这台浏览器**里（`localStorage`，键 `lisa-memory-v1`），刷新不丢、不上传任何地方。
+
+#### 内置内容：宇宙管理员 Lisa（开箱即用）
+
+没导入任何东西时，Lisa 就是**这片宇宙的管理员**：
+
+- **内置人设**：她负责维护从星系到粒子的一切运行参数，但从不直接改写任何生命的选择；你看到的「3D 女孩」是她为了迁就人类感官带宽做的**人形接口**。风格要求：简短、口语化、不炫耀能力、不自称 AI。带一句开场白，首次打开会记进历史，并在你点 `[CLICK] TO START` 约 2 秒后说出来
+- **内置世界书**（9 条）：2 条**常驻**（身份 + 人形接口，永远注入）；7 条按关键词命中（`管理/权限/规则`、`时间/多久`、`人类/地球`、`名字/怎么叫`、`记忆/忘记`、`故障/报错`、`宇宙/星系`）
+- 面板上两个人设/世界书按钮都叫「**恢复内置**」：导入的卡与世界书会覆盖内置，点它就还原（不会叠加）
+- 内置内容也会**一起被导出**进记忆包，换台机器导入即可还原
+
+#### 支持导入的格式
+
+| 能力 | 支持的格式 |
+|---|---|
+| **人设（角色卡）** | SillyTavern **v2**（`{spec:'chara_card_v2', data:{…}}`）、**v1**（字段直接摊在最外层）、**PNG 角色卡**（读 PNG 的 `tEXt`/`iTXt` 块里的 `chara` / `ccv3`，纯手写解析、不需要库）。卡里若带 `character_book`，会作为"内嵌世界书"一并收下 |
+| **世界书** | world info JSON：`{entries:{"0":{…}}}`、`{entries:[…]}`、直接一个条目数组，或单条目；可导入多本叠加 |
+| **记忆包** | 本页导出的 `{kind:'lisa-memory', profile, books, history}` 一份 JSON，导入即完整恢复（**人设 + 世界书 + 对话历史**三样都在里面） |
+| **导入方式** | 面板按钮选文件，或者**把文件直接拖到页面上**（会提示松手导入） |
+
+**世界书的注入规则**（省 token 的关键）：`constant:true` 的条目**永远注入，而且不占 `maxWorldHits` 名额**（否则开场白里出现几个词就可能把它们挤掉）；其余条目按**命中关键词的个数**排序（多的优先，相同再按 `insertion_order`），一次最多注入 `maxWorldHits` 条（默认 8）；`selective` 的条目还要同时命中 `secondary_keys`；`probability` 支持按概率注入。扫描范围是**最近 `worldScanDepth` 条消息 + 当前这句话**。
+
+**prompt 组装**（`llm.js` 调 `window.lisaMemory.buildMessages()`）：
+
+```
+system = "你叫<卡片名>。" + 【角色设定】【性格】【场景】【要求】【对话示例】 + 【背景设定（和当前话题相关）】 + post_history_instructions
+messages = [system] + 最近 promptHistory 条历史 + 当前这句
+```
+
+**对外接口**：
+
+```js
+window.lisaMemory.profile()        // 当前人设对象（name / description / firstMes …）
+window.lisaMemory.worldStats()     // { books, entries }
+window.lisaMemory.history()        // 对话历史数组
+window.lisaMemory.lastHits('咖啡') // 这句话会命中哪几条世界书（调试用）
+window.lisaMemory.exportAll()      // 拿到记忆包对象（面板上的「导出记忆」会下载成 JSON）
+window.lisaMemory.importData(obj)  // 直接喂对象导入（自动识别：记忆包 / 角色卡 / 世界书）
+window.lisaMemory.importArrayBuffer(buf)  // 喂 ArrayBuffer（PNG 角色卡也能认）
+window.lisaMemory.clearHistory() / clearWorld() / clearProfile()
+window.lisaMemory.openPanel(true)  // 打开面板
+```
+
+导入角色卡后如果历史是空的，会先用卡片的 `first_mes` 说一句开场白（进入底部对白层）。
+
 ---
 
 ## 4. 可调参数速查
@@ -354,6 +402,20 @@ window.addEventListener('lisa-llm', function (e) { console.log(e.detail); });  /
 | `preloadDelayMs` | `2500` | 预热延迟（避开开场动画） |
 | `cooldownMs` | `1200` | 两次回话的最小间隔 |
 
+### 4.6 记忆 / 人设 / 世界书参数（都在 `memory.js` 顶部的 `CFG` 里，改完刷新即可）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `storageKey` | `'lisa-memory-v1'` | localStorage 缓存键；改它等于换一套独立存档 |
+| `maxHistory` | `60` | 本地最多保留多少条对话（超出丢最老的） |
+| `promptHistory` | `8` | 每次真正发给模型的历史条数（省上下文） |
+| `maxCharsPerMsg` | `400` | 单条消息注入时的截断长度 |
+| `maxSystemChars` | `1800` | system 总长上限（4k 上下文要留够生成空间） |
+| `maxWorldHits` | `8` | 一次最多注入几条「关键词命中」的世界书（常驻条目不占这个名额） |
+| `useBuiltin` | `true` | 是否启用内置的宇宙管理员人设 + 世界书；`false` = 什么都不带的裸模型 |
+| `worldScanDepth` | `4` | 匹配世界书时回看最近几条消息 |
+| `defaultPersona` | 内置中文人设 | 没导入角色卡时用的默认人设 |
+
 ---
 
 ## 5. 已经跑过的验证（headless Chrome + 本地 HTTP）
@@ -374,6 +436,7 @@ window.addEventListener('lisa-llm', function (e) { console.log(e.detail); });  /
 | 对白层（弹幕） | 无头 Chrome 实测通过：`lisa-voice` 事件驱动下 —— 草稿时面板升起（`is-on`）并带光标；定稿时做乱码落定（中途抓到乱码、结束时完整）；第二句另起一行且上一行降级为历史样式；连发 4 句只保留 3 行；停留 `sayHoldMs` 后面板收起；并核对了 `font-size / color / background / border-radius / z-index` 等计算样式确实吃到 `main.css` 的原站规则（过程中修掉一个真 bug：多句连续时前一句的落定动画被打断、卡在乱码） |
 | 端侧 GPU 小模型（`llm.js`） | `node --check` 通过；`llm/web-llm.js` 确认是 ESM 且导出 `CreateMLCEngine`；**无头 Chrome 实测**：`llm.js` 加载成功、`window.lisaLLM` 挂载、`navigator.gpu` 存在但无适配器时走到中文降级提示（`progress 正在检查 GPU…` → `error 这台设备的浏览器没有可用的 WebGPU…`），语音识别不受影响 |
 | 端侧小模型（真机生成） | ⚠️ 需要你在**有显卡的 Chrome / Edge** 里确认（无头环境没有 WebGPU 适配器，SwiftShader 也跑不动 276MB 模型）：点 `[CLICK] TO START` 后控制台应出现 `[llm] 端侧模型已就绪：Qwen2.5-0.5B-Instruct-q4f16_1-MLC（跑在 GPU 上）`，然后说一句话，弹幕里应出现**蓝色**的回复 |
+| 记忆 / 人设 / 世界书（`memory.js`） | `node --check` 通过；**逻辑单测 47 项全过**（node + 假 DOM）：v2 / v1 / **PNG** 角色卡解析、卡内嵌世界书、世界书三种写法、关键词命中与不命中、`constant` 永远注入、`secondary_keys` 二级命中才注入、`enabled:false` 不注入、prompt 组装（system 在最前、历史进 prompt）、导出/导入往返、清空、非法输入拒绝、localStorage 写入结构。**无头 Chrome 实测 15 项**：面板点开/关闭、导入后人设/世界书/历史文案实时更新、`buildMessages` 含人设与世界书条目、`localStorage` 921 字节结构正确、导出结构正确。过程中修掉四个真 bug：数组自带 `.entries/.keys` 方法导致数组式世界书解析失败；v1 角色卡识别条件不足；内置人设用了 camelCase 字段名导致开场白丢失；`constant` 常驻条目会被 `maxWorldHits` 名额挤掉（已改为常驻不占名额） |
 
 ---
 
@@ -405,6 +468,9 @@ window.addEventListener('lisa-llm', function (e) { console.log(e.detail); });  /
 | 小模型加载很久 / 加载失败 | 首次要编译 WebGPU 着色器（十几秒~1 分钟）并把 276MB 权重写进 IndexedDB，控制台会打 `progress` 进度，耐心等；失败时看控制台：`Failed to fetch …/llm/…` = 模型文件没跟着部署；显存不足则会报 WebGPU / OOM（需要约 1GB 空闲显存） |
 | Lisa 不自动回话 | ① `CFG.autoAnswer` 是否为 `true`；② `lisaLLM.state().ready` 是否为 `true`；③ 控制台有没有 `[llm] 生成失败` —— 若模型模板不接受 system 角色，代码会自动去掉 system 重试一次 |
 | 想让它别用显卡 / 别自动跑 | 把 `human.html` 里 `<script src="./llm.js" …>` 那行注释掉；或把 `CFG.preload` 改成 `'manual'`（不预热，只在你手动 `lisaLLM.ask()` 时才加载）；或 `CFG.autoAnswer = false`（只听不说） |
+| 导入角色卡没反应 / 提示"不是角色卡" | 面板底部会直接给原因：① 文件得是合法 JSON（PNG 卡走 `chara`/`ccv3` 块）；② 角色卡至少要有一个内容字段（`description` / `personality` / `scenario` / `system_prompt` / `first_mes`）；③ 带 `character_book` 的卡会连内嵌世界书一起收下 |
+| 世界书导入了但回答里没用上 | 世界书是**关键词命中**才注入：确认条目 `enabled` 不是 false、`keys` 里有你话里会出现的词（用 `lisaMemory.lastHits('你的一句话')` 看命中）；`constant:true` 的条目才是永远注入 |
+| 想换一套存档 / 彻底清干净 | 面板三个按钮分别清人设、世界书、对话记忆；换独立存档就改 `memory.js` 的 `storageKey`，或控制台 `localStorage.removeItem('lisa-memory-v1')` |
 
 ---
 
@@ -437,6 +503,8 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 | **`启动本地服务.bat`** | 只在本地双击有用，推上去也不影响（可以删掉） |
 | **CORS / MIME** | GitHub Pages 会给 `.mp3` 发 `audio/mpeg`、`.woff2` 发 `font/woff2`；`.glb` / `.exr` 一般是 `application/octet-stream`，three.js 用 arraybuffer 读取，不受影响 |
 | **字体** | `main.css` 里是 `/xxx.woff2` 这种根路径，仓库在子路径下会 404；本页已在 `human.html` 里用**相对路径 `@font-face` 覆盖**，所以子目录部署也正常 |
+| ⚠️ **大文件必须真的推上去** | `vosk/`（49MB）和 `llm/`（287MB）要跟页面一起提交推送。**Git LFS 不行**：GitHub Pages 不支持 LFS，页面拿到的是几百字节的指针文件，表现就是 `vosk/model.vosk` 404、Vosk 报 `HTTP error! status: 404`（`asr.js` / `llm.js` 现在会先 HEAD 探测并明确报出是哪个 URL）。检查方法：在仓库网页上点开这些文件，看大小是不是真实大小 |
+| **字体的两个 404 可以无视** | `main.css` 里 `@font-face` 用的是根路径 `/PPLocomotiveNew-Light.woff2`，子目录部署时浏览器必然报两个 404；`human.html` 已经用相对路径的 `@font-face` 覆盖，字体显示正常 |
 | ⚠️ **签名视频会过期** | `表情.txt` 最后两条是带签名的临时地址（`expires=1790175600` ≈ **2026-09-23**），过期后会 403；长期用请只保留前 4 条公开地址 |
 | ⚠️ **访客网络要求** | 表情视频要能访问 mux CDN；若访客网络访问不了，模型和声音仍正常，只是屏幕上的表情视频不出来 |
 
@@ -446,6 +514,6 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 
 ## 9. 附
 
-- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：离线 Vosk / 云端 Web Speech）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）。
+- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层 + 记忆面板）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：离线 Vosk / 云端 Web Speech）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）、**新增 `memory.js`**（记忆 / 人设 / 世界书，纯 localStorage 缓存）。
 - 桌面上另有 `bendibanb\`（原始快照，未改动）与 `bendibanb.zip`，需要对照或回退时可用。
 - `app.js` 是压缩打包体，补丁以**独立段落注入**（只替换了 3 处字符串 + 在 `oP` 类后插入一段自包含代码），格式化/压缩工具不要再压缩这段，否则注释与可读结构会丢。
