@@ -749,9 +749,13 @@
                 <div class="c-lisa_memory-hint" style="border-top:0;padding-top:0">
                     离线缓存（<code>sw.js</code> + <code>cache.js</code>）：模型权重 276MB、离线语音 49MB
                     与页面资源下载一次就存在本机，<b>第二次打开是 0 下载</b>（断网也能开）。
-                    缓存按「地址 + 端口」隔离 —— 固定用
-                    <code>http://127.0.0.1:8000/human.html</code> 最省事（换成局域网 IP 或别的端口
-                    就是另一套缓存，会重新下一次）。
+                    页面上第一次点击（<code>[CLICK] TO START</code>）之后才开始预下载 ——
+                    免得爬虫 / 路人白跑 345MB 流量。<br>
+                    缓存是「每个地址 + 目录、每台设备、每个浏览器」各一份：手机和电脑不共享；
+                    部署在 GitHub Pages 时改了仓库名 / 部署目录（或本地换了端口 / 用局域网 IP）
+                    就是新的一套，会重新下一次。<br>
+                    iPad / iPhone 的 Safari「7 天没访问会清站点存储」：想长期留着就用分享菜单
+                    「添加到主屏幕」，以后从主屏图标打开。
                 </div>
                 <div class="c-lisa_memory-hint" id="lisa-memory-hint">
                     内置人设 + 世界书：<b>Lisa —— 这片宇宙的管理员</b>，以人类能理解的形象出现；

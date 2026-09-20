@@ -25,6 +25,8 @@
 | `tts.js` | **语音播报（TTS）**：把 Lisa 的回复念出来（默认浏览器内置合成，离线、零依赖；也可换成自己起的本地 TTS 服务） | 本次新增，见第 3.7 节 |
 | `sw.js` | **离线缓存 Service Worker**：页面 / 脚本 / 3D 资源 / 离线语音 / 模型权重下载一次就永久留在本机 | 本次新增，见第 3.8 节 |
 | `cache.js` | **离线缓存（页面侧）**：申请持久化存储 + 一次性预下载全部资源 + 换地址提醒 | 本次新增，见第 3.8 节 |
+| `启动本地服务.bat` | 本地调试用：起 `python -m http.server` 并打开 `http://127.0.0.1:8000/human.html` | 与网页无关，推不推都行 |
+| `上传前自检.bat` + `上传前自检.ps1` | **推送 GitHub Pages 前跑一下**：单文件 100MiB 上限、总体积、关键文件、权重分片是否齐全、缓存版本号提醒 | 只读检查，不改文件；见第 8.2 节 |
 | `llm/web-llm.js` | WebLLM 引擎（MLC 的浏览器端推理库，ESM） | 6.6 MB，本地文件 |
 | `llm/Qwen2-0.5B-…-webgpu.wasm` | 该模型对应的 WebGPU 计算库 | 4.6 MB，本地文件 |
 | `llm/models/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/v2/` | 模型权重（q4f16 量化，14 个分片） | 276 MB，本地文件；**`resolve/<段>` 这层是 WebLLM 的规则，别删** |
@@ -427,7 +429,7 @@ window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  /
 
 ### 3.8 `sw.js` + `cache.js`（本次新增）：**下载一次就永久留在本机**
 
-针对「每次打开网页都在重新下载」这个问题，做了三层保障：
+针对「每次打开网页都在重新下载」这个问题（本页部署在 **GitHub Pages** 上，这一点决定了设计），做了三层保障：
 
 | 层次 | 做什么 | 为什么需要 |
 |---|---|---|
@@ -443,22 +445,33 @@ window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  /
 **界面**：记忆面板里多了一行 —— 「预下载全部」「清空缓存」+ 缓存状态（文件数 / 体积 / 是否已持久化）；
 预下载期间屏幕下方有一条进度条（`#lisa-offline-bar`，完成 5 秒后自动消失）。
 
-**⚠️ 换地址 = 换缓存**（"每次打开都重新下载"最常见的原因）：
-浏览器缓存按「协议 + 主机 + 端口」隔离，`http://127.0.0.1:8000` 与 `http://192.168.x.x:8000`
-是**两套完全独立的缓存**。`cache.js` 会记住上次用的地址，换了就弹提示。固定用一个地址最省事，
-推荐 `http://127.0.0.1:8000/human.html`（`启动本地服务.bat` 现在默认打开的就是它）。
+**⚠️ 缓存是「地址 + 目录 + 设备 + 浏览器」四个维度各一份**（在 GitHub Pages 上尤其要注意）：
+
+| 变了什么 | 会怎样 |
+|---|---|
+| **仓库改名 / 换部署目录**（`…github.io/旧名/` → `…github.io/新名/`） | 等于换了一套缓存，会重下一次（`cache.js` 会弹提示） |
+| 换自定义域名（CNAME） | 换 origin，同样重下一次 |
+| 换设备 / 换浏览器（手机 vs 电脑、Chrome vs Edge） | 各存一份，互不共享（浏览器的隔离规则，不是 bug） |
+| 本地在 `127.0.0.1` / `localhost` / 局域网 IP 之间切换 | 同理，各一套 |
+| iPad / iPhone Safari 7 天没访问 | 系统会清掉站点存储（用「添加到主屏幕」可避免） |
 
 **其它要点**：
 
-1. **只在安全上下文可用**（https / `http://localhost` / `http://127.0.0.1`）。手机用局域网 IP 打开时
-   Service Worker 注册不了 —— 页面会提示；那种情况下模型只能靠浏览器自身的 HTTP / IndexedDB 缓存。
-2. **不重复占盘（可选）**：权重既在 WebLLM 的 IndexedDB 里，也在 SW 缓存里（各一份，约 276MB×2）。
+1. **预下载时机**：默认 `CFG.autoPrecache = 'gesture'` —— 等你**第一次点击页面**（也就是 `[CLICK] TO START`）之后 3 秒才开始。
+   原因：Pages 有 100GB/月 的软流量限制，而全新一次访问约 345MB；这样一来爬虫与路人不会消耗，只有真正用的人才会下。
+   想改成「打开就下」把 `autoPrecache` 改成 `'now'`，想改成纯手动就设 `false`（只用面板上的「预下载全部」）。
+2. **只在安全上下文可用**（https / `http://localhost` / `http://127.0.0.1`）。GitHub Pages 是 https，天然满足；
+   手机用局域网 IP 打开时 Service Worker 注册不了 —— 页面会提示，那种情况下模型只能靠浏览器自身的 HTTP / IndexedDB 缓存。
+3. **不重复占盘（可选）**：权重既在 WebLLM 的 IndexedDB 里，也在 SW 缓存里（各一份，约 276MB×2）。
    想省磁盘就把 `cache.js` 里的 `CFG.cacheWeights` 改成 `false`（权重的持久化交给 WebLLM 的 IndexedDB）；
    `CFG.cacheVosk = false` 同理跳过那 49MB。
-3. **跨域与 Range 请求不碰**：表情视频（`stream.mux.com`）等跨域请求、带 `Range` 的音视频拖动请求
+4. **跨域与 Range 请求不碰**：表情视频（`stream.mux.com`）等跨域请求、带 `Range` 的音视频拖动请求
    原样放行，不受影响。
-4. **更新代码怎么办**：脚本 / 样式走「先用缓存 + 后台更新」，所以改了文件**把 `?v=` 加一**（本项目一直在用）
+5. **持久化授权拿不到也不算坏**：非 localhost 站点首次通常拿不到 `persist()`（浏览器按站点参与度给）。
+   缓存不会被**主动**清理，只是磁盘紧张时可能被清；想更稳就「安装为应用 / 添加到主屏」，或在站点设置里允许持久化存储。
+6. **更新代码怎么办**：脚本 / 样式走「先用缓存 + 后台更新」，所以改了文件**把 `?v=` 加一**（本项目一直在用）
    就立刻生效；想彻底重建缓存，把 `sw.js` 顶部的 `VERSION` 加一（`lisa-v1` → `lisa-v2`）。
+   推送前建议先跑一遍 `上传前自检.bat`（它会把这几个版本号打出来提醒你）。
 
 **对外接口**：
 
@@ -595,12 +608,14 @@ window.addEventListener('lisa-offline', function (e) { console.log(e.detail); })
 |---|---|---|
 | `swUrl` | `'./sw.js'` | Service Worker 文件位置 |
 | `enabled` | `true` | `false` = 不注册 SW（退回浏览器自身的 HTTP / IndexedDB 缓存） |
-| `autoPrecache` | `true` | 打开页面后自动把全部资源预下载到本机 |
-| `autoPrecacheDelayMs` | `4000` | 预下载的启动延迟（别和开场动画、模型预热抢带宽） |
+| `autoPrecache` | `'gesture'` | 预下载时机：`'gesture'`（默认）= **用户第一次点击 / 按键之后**再下（Pages 上省流量，爬虫不触发）；`'now'` = 打开就下（本地服务合适）；`false` = 不自动下，只用面板按钮 / `lisaOffline.precache()` |
+| `autoPrecacheDelayMs` | `4000` | `'now'` 模式下的启动延迟（别和开场动画、模型预热抢带宽） |
+| `precacheGestureDelayMs` | `3000` | `'gesture'` 模式下，手势之后再等这么久开始 |
 | `cacheWeights` | `true` | 是否把大模型权重（约 276MB）收进离线缓存；`false` = 只靠 WebLLM 的 IndexedDB（省一份磁盘） |
 | `cacheVosk` | `true` | 是否把离线语音（约 49MB）收进离线缓存 |
 | `always` | 3D / 声音 / 图标 / 字体清单 | 一定会缓存的本地文件（脚本与样式自动从 DOM 读，不在这里列） |
 | `extra` | `[]` | 想额外缓存的相对路径 |
+| `scopeKey` | `'lisa-offline-scope'` | 记上次的「地址 + 目录」；变了就提示"要重下一次" |
 | `sw.js` 里的 `VERSION` | `'lisa-v1'` | **改缓存策略 / 清单后 +1**，浏览器会自动丢掉旧缓存重建 |
 
 ---
@@ -673,8 +688,9 @@ window.addEventListener('lisa-offline', function (e) { console.log(e.detail); })
 | **Safari / iPhone：识别不了、或提示要让打开听写** | Safari 用的是**苹果原生听写**（不是 Google / 微软那套）：① iOS：设置 → 通用 → 键盘 → **启用听写**，并把「中文（普通话）」加进听写语言；② macOS：系统设置 → 键盘 → 听写、以及「Siri 与听写」里允许听写；③ 页面必须在 https 或 `http://localhost` 下并允许麦克风。做不到这些就把 `asr.js` 的 `CFG.engine` 改成 `'vosk'`（本机离线小模型，不依赖系统） |
 | Safari：想确认音频到底有没有出本机 | `lisaVoice.state()` 里的 `safari: true, onDevice: true` 表示**只在本机识别**（`requiresOnDeviceRecognition` 生效）；如果控制台出现「苹果本机听写不可用（…），改为在线识别重试一次」，说明系统缺中文听写包，这次退回了 Apple 的在线识别 |
 | **右下角那颗喇叭为什么管两件事** | 2026-09 起把原来两颗按钮（环境音 / 语音播报）合并成一颗：单击 = 全部开 / 关，**长按或右键** = 面板里分别控制「环境音（开关 + 音量）」与「语音播报（开关 + 音色 / 语速 / 音调）」 |
-| **每次打开都还在重新下载模型** | ① 先看**访问地址是不是变了**：`127.0.0.1:8000` 与 `192.168.x.x:8000`、`localhost:8000` 是**三套不同的缓存**，换来换去等于每次重下（`cache.js` 会弹提示）；② 看是不是**非安全上下文**（局域网 IP）：那种情况下 Service Worker 注册不了，缓存只剩浏览器自身的 HTTP / IndexedDB；③ 打开记忆面板看「离线缓存」那行：正常应显示「已缓存 30+ 个文件 / 300+ MB · 已持久化」，是 0 就点「预下载全部」；④ 浏览器清理数据 / 隐私模式下每次都会重下 |
+| **每次打开都还在重新下载模型** | 逐条对：① **地址或目录变了** —— 缓存是按「地址 + 目录」存的：Pages 上**改了仓库名 / 换了部署目录**（`…github.io/旧名/` → `…github.io/新名/`）＝换了一套缓存；本地在 `127.0.0.1` / `localhost` / 局域网 IP 之间切换同理（`cache.js` 会弹提示）；② **换了浏览器或设备**：缓存不跨浏览器、不跨设备，手机和电脑各下一次；③ **非安全上下文**（局域网 IP、`file://`）：Service Worker 注册不了，只剩浏览器自身的 HTTP / IndexedDB 缓存；④ 打开记忆面板看「离线缓存」那行：正常应是「已缓存 30+ 个文件 / 300+ MB」，是 0 就点「预下载全部」；⑤ **隐私/无痕窗口**：关掉窗口就清空，每次都会重下；⑥ **iPad / iPhone Safari 7 天没访问**：站点存储被系统清掉（用「添加到主屏幕」可避免）；⑦ 浏览器「清除浏览数据」勾了「Cookie 及其他网站数据 / 缓存的图片和文件」 |
 | 改了文件但页面还是旧的 | 脚本 / 样式走「先用缓存 + 后台更新」：**把 `?v=` 加一**（如 `llm.js?v=7` → `v=8`）或把 `sw.js` 的 `VERSION` 加一，刷新即可；也可以 `lisaOffline.clear()` 清空缓存后再刷新 |
+| Pages 上第一次打开没看到预下载进度 | 预下载默认**要等你点一下页面**（`[CLICK] TO START`）之后 3 秒才开始（`CFG.autoPrecache = 'gesture'`）—— 这是故意的：Pages 有 100GB/月 的软流量限制，全新一次访问约 345MB，不能让爬虫 / 路人也跟着下。想改成"打开就下"就把 `CFG.autoPrecache` 改成 `'now'` |
 
 ---
 
@@ -690,17 +706,31 @@ window.addEventListener('lisa-offline', function (e) { console.log(e.detail); })
 
 ---
 
-## 8. 部署到 GitHub Pages（可以生效，注意几点）
+## 8. 部署到 GitHub Pages（本页就是按这个场景设计的）
 
 GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 - ✅ 不会再出现 `file://` 那种"音频/模型被拦、按钮看着没用"的问题；
+- ✅ **https = 安全上下文**：麦克风、Service Worker、持久化存储全都能用（比局域网 IP 好）；
 - ✅ 相对路径（`ambient.mp3` / `lisa.glb` / `envmap.exr` / `running_code.mp4`）在同仓库子目录下也能正常加载；
 - ✅ 表情视频走 `stream.mux.com`（HTTPS），不会和页面产生混合内容问题。
 
-推送前建议：
+### 8.1 缓存与流量（Pages 特有的几点）
+
+| 事项 | 说明 / 已经做的处理 |
+|---|---|
+| **Pages 不能自定义响应头** | 只会发 `Cache-Control: max-age=600`，所以**长期缓存只能靠 Cache Storage**：`sw.js`（Service Worker）把页面 / 脚本 / 3D 资源 / `vosk/` / `llm/` 收进本机，第二次打开 0 下载（详见第 3.8 节） |
+| **每次全新访问 ≈345MB 流量** | Pages 有 **100GB/月** 的软限制，345MB × 这个数字意味着**约 290 次全新访问**就摸到上限（同一浏览器第二次打开是 0 流量）。所以预下载默认 `CFG.autoPrecache = 'gesture'`：**等用户点过页面才开始**，爬虫 / 路过的人不会消耗 |
+| **每台设备 / 每个浏览器各一份** | 这是浏览器的隔离规则：手机 + 电脑 = 两份 345MB；同一台机器的 Chrome 与 Edge 也是两份 |
+| **子目录部署（`/<仓库>/`）** | SW 用相对路径注册、以 `registration.scope` 拼绝对地址，所以 `https://<用户>.github.io/<仓库>/` 下一切正常；但**改了仓库名 / 换了部署目录就是新的一套缓存**（`cache.js` 会检测并提示） |
+| **非 localhost 首次拿不到持久化授权** | 正常现象（浏览器按"站点参与度"给）：缓存不会被主动清理，只是磁盘紧张时可能被清；页面会提示「安装为应用 / 站点设置里允许持久化」 |
+| **iPad / iPhone Safari** | 「7 天没访问就清站点存储」→ 345MB 会被清掉；页面会提示用分享菜单「**添加到主屏幕**」，之后从主屏图标打开（装成 Web App 不受这条策略影响） |
+| **GitHub Pages 的 HTTPS 证书与域名** | 用默认的 `*.github.io` 即可；自定义域名（CNAME）会变成另一个 origin，等于**又一份缓存**（换域名=重下） |
+
+### 8.2 推送前建议
 
 | 事项 | 说明 |
 |---|---|
+| **先跑「上传前自检.bat」** | 双击即可（只读，不改文件）：检查**单文件 100MiB 硬上限**（超了 push 直接被拒）、总体积、关键文件是否齐全、**模型权重分片有没有漏传**、`resolve/<段>/` 这层是否还在，并打印 `sw.js` 的 `VERSION` 与各脚本的 `?v=`，提醒你该加哪个号 |
 | **加 `.nojekyll`** | 仓库根目录放一个空文件 `.nojekyll`，避免 GitHub Pages 用 Jekyll 处理时忽略/改写文件（本目录已放好） |
 | **仓库名用 ASCII** | 建议 `lisa-3d` 这类名字；本目录名 `lisa` 已经是纯 ASCII，直接用即可（历史上它叫 `bendibanb - 副本`，带空格和中文，URL 里会变成 `%20`/百分号编码，能用但难维护） |
 | **把本目录内容推到仓库根** | 或者任意子目录都行（页面用的是相对路径）；Pages 设置里选对应分支/目录即可 |
@@ -720,6 +750,6 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 
 ## 9. 附
 
-- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层 + 记忆面板 + **环境音/播报合并成一颗声音按钮** + 离线缓存那行）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：`engine:'auto'` → Safari 走**苹果原生听写**、其它走离线 Vosk，另带给播报用的静默闸门 `lisaVoice.hold`）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）、**新增 `memory.js`**（记忆 / 人设 / 世界书，纯 localStorage 缓存）、**新增 `tts.js`**（语音播报：浏览器内置合成，离线零依赖；可选接本地 TTS 服务）、**新增 `sw.js` + `cache.js`**（离线缓存：下载一次 → 永久本机，第二次打开 0 下载）、`启动本地服务.bat`（默认改成打开 `127.0.0.1`，避免和局域网 IP 用成两套缓存）。
+- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层 + 记忆面板 + **环境音/播报合并成一颗声音按钮** + 离线缓存那行）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：`engine:'auto'` → Safari 走**苹果原生听写**、其它走离线 Vosk，另带给播报用的静默闸门 `lisaVoice.hold`）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）、**新增 `memory.js`**（记忆 / 人设 / 世界书，纯 localStorage 缓存）、**新增 `tts.js`**（语音播报：浏览器内置合成，离线零依赖；可选接本地 TTS 服务）、**新增 `sw.js` + `cache.js`**（离线缓存：**按 GitHub Pages 场景设计** —— 下载一次 → 永久本机、第二次打开 0 下载、预下载等用户手势、换目录/换设备会提示）、`启动本地服务.bat`（默认改成打开 `127.0.0.1`）、**新增 `上传前自检.bat` + `.ps1`**（推送 Pages 前检查 100MiB 上限与权重分片是否齐全）。
 - 桌面上另有 `bendibanb\`（原始快照，未改动）与 `bendibanb.zip`，需要对照或回退时可用。
 - `app.js` 是压缩打包体，补丁以**独立段落注入**（只替换了 3 处字符串 + 在 `oP` 类后插入一段自包含代码），格式化/压缩工具不要再压缩这段，否则注释与可读结构会丢。
