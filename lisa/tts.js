@@ -16,8 +16,11 @@
      语音事件，防止回声一上来就误打断。
    · 打断：CFG.bargeIn = true 时，你一开口就立刻停下她的播报（真实对话感）。
      默认关闭：音箱外放时她会听到自己，容易被自己的声音打断；戴耳机可以打开它。
-   · 界面：右下角喇叭按钮 —— 单击 = 开 / 关播报；长按（约 0.6s）或右键 = 音色面板
-     （音色 / 语速 / 音调 / 试听 / 停止）；设置存在 localStorage['lisa-tts-v1']，刷新不丢。
+   · 界面（**和原站那颗喇叭按钮合并成同一颗** #lisa-sound）：
+       单击 = 声音总开关（环境音 ambient.mp3 + Lisa 的语音播报 一起开 / 关）
+       长按（约 0.6s）或右键 = 打开「声音 / 语音」面板：环境音开关 + 音量、音色、语速、音调、试听
+       播报设置存 localStorage['lisa-tts-v1']；环境音音量 / 静音存 lisa-ambient-volume / lisa-muted
+       （环境音本体在 human.html 的内联脚本里，通过 window.lisaSound 对接）
    · 对外接口：window.lisaTTS.speak('…') / .stop() / .on() / .off() / .toggle()
                .voices() / .setVoice(名字) / .panel(true) / .test() / .state()
      事件：window 上的 'lisa-tts' —— { type: 'sentence' | 'end' | 'error' | 'state', … }
@@ -69,7 +72,9 @@
     };
 
     /* ------------------------------------------------------------------ DOM */
-    var elBtn = document.getElementById('lisa-tts');
+    /* 按钮：和原站那颗「环境音」开关**合并**成同一颗 —— 优先用 #lisa-sound（右下角黑圆那颗），
+       万一页面里没有它（老版 HTML）就退回独立喇叭按钮 #lisa-tts */
+    var elBtn = document.getElementById('lisa-sound') || document.getElementById('lisa-tts');
     var elPanel = document.getElementById('lisa-tts-panel');
     var elClose = document.getElementById('lisa-tts-close');
     var elSel = document.getElementById('lisa-tts-voice');
@@ -81,6 +86,10 @@
     var elStopBtn = document.getElementById('lisa-tts-stop');
     var elRefresh = document.getElementById('lisa-tts-refresh');
     var elInfo = document.getElementById('lisa-tts-info');
+    var elTtsToggle = document.getElementById('lisa-tts-toggle');          /* 面板里：语音播报 开/关 */
+    var elSoundToggle = document.getElementById('lisa-sound-toggle');      /* 面板里：环境音 开/关 */
+    var elSoundVol = document.getElementById('lisa-sound-volume');         /* 面板里：环境音音量 */
+    var elSoundVolVal = document.getElementById('lisa-sound-volume-val');
     var elTip = document.getElementById('lisa-voice-tip');     /* 复用语音输入那条顶部提示条 */
     var elMemPanel = document.getElementById('lisa-memory');   /* 两个面板位置重叠，开一个收一个 */
 
@@ -513,28 +522,61 @@
     }
 
     /* ==================================================================================
-       界面：右下角喇叭按钮（单击 = 开/关；长按或右键 = 音色面板）+ 音色面板
+       界面：右下角那颗喇叭按钮（合并了「环境音」与「语音播报」）+ 声音 / 语音面板
        ================================================================================== */
+
+    /* 按钮图标和原站那颗一模一样（黑圆由 human.html 的内联样式给，图标在这里切）：
+       声波那两段带 .c-lisa_tts-wave，全部静音时 human.html 的 CSS 会把它们藏掉 */
+    var ICON_ON = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">' +
+        '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
+        '<path class="c-lisa_tts-wave" d="M14.4 8.4a4.8 4.8 0 0 1 0 7.2l1.5 1.5a6.9 6.9 0 0 0 0-10.2z"/>' +
+        '<path class="c-lisa_tts-wave" d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z"/></svg>';
+    var ICON_OFF = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">' +
+        '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
+        '<g transform="rotate(45 19.4 12)"><rect x="18.45" y="7.4" width="1.9" height="9.2" rx=".95"/>' +
+        '<rect x="14.8" y="11.05" width="9.2" height="1.9" rx=".95"/></g></svg>';
+
+    /* 环境音那一侧（human.html 里的内联脚本挂上来的） */
+    function sound() { return window.lisaSound || null; }
+
+    function ambientOn() {
+        var S = sound();
+        try { return !!(S && S.isOn()); } catch (e) { return false; }
+    }
+
     function setBtn() {
         if (!elBtn) return;
-        var cls = 'c-lisa_voice';
-        if (!tts.enabled || !tts.supported) cls += ' is-off';    /* is-off = 半透明 + 藏起声波 */
-        else if (tts.playing) cls += ' is-speak';                /* is-speak = 脉冲光圈，正在念 */
+        var amb = ambientOn();
+        var anyOn = amb || tts.enabled;                 /* 只要还有一个在响，就算「有声」 */
+        var cls = anyOn ? '' : 'is-off';
+        if (tts.playing && tts.enabled) cls = (cls ? cls + ' ' : '') + 'is-speak';
         elBtn.className = cls;
-        elBtn.title = !tts.supported
-            ? '语音播报不可用（这台浏览器没有内置语音合成）'
-            : (tts.playing ? '语音播报：正在念（单击关掉）'
-                : (tts.enabled ? '语音播报：开（单击关闭 / 长按选音色）'
-                    : '语音播报：关（单击开启 / 长按选音色）'));
-        elBtn.setAttribute('aria-label', tts.enabled ? '语音播报已开启' : '语音播报已关闭');
+        try { elBtn.innerHTML = anyOn ? ICON_ON : ICON_OFF; } catch (e) { }
+        elBtn.style.boxShadow = anyOn ? 'none' : 'inset 0 0 0 3px #fff';
+        elBtn.title = (anyOn ? '声音：开' : '声音：关') +
+            '　单击 = 全部开 / 关　长按或右键 = 声音 / 语音面板' +
+            '　（环境音 ' + (amb ? '开' : '关') + '，语音播报 ' + (tts.enabled ? '开' : '关') + '）';
+        elBtn.setAttribute('aria-label', anyOn ? '声音已开启' : '声音已关闭');
+    }
+
+    /* 单击 = 声音总开关：还有声音在响 → 全关；都静着 → 全开（环境音 + 语音播报一起） */
+    function masterToggle() {
+        var want = !(ambientOn() || tts.enabled);
+        var S = sound();
+        if (S) { if (want) S.on(); else S.off(); }
+        toggle(want);
+        syncPanel();
+        fire('state', { enabled: tts.enabled, ambient: ambientOn(), master: want });
+        return want;
     }
 
     function toggle(on) {
         var want = (on === undefined) ? !tts.enabled : !!on;
-        if (want === tts.enabled) { setBtn(); return tts.enabled; }
+        if (want === tts.enabled) { setBtn(); syncPanel(); return tts.enabled; }
         tts.enabled = want;
         if (want) setBtn();
         else stop('off');                 /* 关掉的时候顺手把正在念的打住，并把闸门放开 */
+        syncPanel();
         save();
         fire('state', { enabled: tts.enabled });
         return tts.enabled;
@@ -558,11 +600,19 @@
             elPitch.value = CFG.pitch;
             if (elPitchVal) elPitchVal.textContent = CFG.pitch.toFixed(2);
         }
+        var S = sound();
+        if (elTtsToggle) elTtsToggle.textContent = '语音播报：' + (tts.enabled ? '开' : '关');
+        if (elSoundToggle) elSoundToggle.textContent = '环境音：' + ((S && S.isOn()) ? '开' : '关');
+        if (elSoundVol && S) {
+            var v = S.volume();
+            elSoundVol.value = v;
+            if (elSoundVolVal) elSoundVolVal.textContent = Math.round(v * 100) + '%';
+        }
     }
 
     function bindUI() {
         if (elBtn) {
-            elBtn.addEventListener('pointerdown', function () {            /* 长按 -> 音色面板 */
+            elBtn.addEventListener('pointerdown', function () {            /* 长按 -> 声音 / 语音面板 */
                 press.long = false;
                 window.clearTimeout(press.timer);
                 press.timer = window.setTimeout(function () {
@@ -576,9 +626,9 @@
             elBtn.addEventListener('pointercancel', cancelPress);
             elBtn.addEventListener('click', function () {
                 if (press.long) { press.long = false; return; }   /* 长按已经开过面板，别再切成关 */
-                toggle();
+                masterToggle();                                   /* 单击 = 全部开 / 关 */
             });
-            elBtn.addEventListener('contextmenu', function (e) {  /* 右键 -> 音色面板 */
+            elBtn.addEventListener('contextmenu', function (e) {  /* 右键 -> 声音 / 语音面板 */
                 e.preventDefault();
                 panel();
             });
@@ -603,6 +653,23 @@
         if (elTest) elTest.onclick = function () { test(); };
         if (elStopBtn) elStopBtn.onclick = function () { stop('panel'); };
         if (elRefresh) elRefresh.onclick = function () { refreshVoices(); syncPanel(); };
+        /* 面板里：语音播报开关（等价于点喇叭按钮的一半） */
+        if (elTtsToggle) elTtsToggle.onclick = function () {
+            toggle();
+            syncPanel();
+        };
+        /* 面板里：环境音开关与音量（调到 >0 会自动取消静音） */
+        if (elSoundToggle) elSoundToggle.onclick = function () {
+            var S = sound();
+            if (S) S.toggle();
+            syncPanel();
+        };
+        if (elSoundVol) elSoundVol.oninput = function () {
+            var S = sound();
+            if (!S) return;
+            S.volume(clamp(parseFloat(elSoundVol.value) || 0, 0, 1));
+            syncPanel();
+        };
     }
 
     /* ==================================================================================
@@ -646,6 +713,13 @@
         if (document.hidden && (tts.playing || tts.queue.length)) stop('hidden');
     });
 
+    /* 环境音那一侧的动静（human.html 的 lisaSound 发的）：播放 / 暂停 / 改音量 / 点按钮静音 —— 
+       按钮和面板都跟着刷新，保证那颗合并按钮显示的是「整体有没有声音」 */
+    window.addEventListener('lisa-sound', function () {
+        setBtn();
+        syncPanel();
+    }, false);
+
     window.lisaTTS = {
         config: CFG,
         supported: tts.supported,
@@ -656,7 +730,9 @@
         on: function () { return toggle(true); },
         off: function () { return toggle(false); },
         toggle: toggle,
-        panel: panel,                                   /* lisaTTS.panel(true) 打开音色面板 */
+        master: masterToggle,                           /* 等价于点右下角那颗按钮：环境音 + 播报一起开 / 关 */
+        sound: sound,                                   /* 环境音那一侧（human.html 的 window.lisaSound） */
+        panel: panel,                                   /* lisaTTS.panel(true) 打开声音 / 语音面板 */
         voices: function () { return (tts.voices || []).slice(); },
         setVoice: function (name) {
             CFG.voiceName = String(name || '');
@@ -670,12 +746,14 @@
             return CFG.lang;
         },
         state: function () {
+            var S = sound();
             return {
                 supported: tts.supported, enabled: tts.enabled, engine: CFG.engine,
                 playing: tts.playing, queue: tts.queue.length,
                 voice: tts.voice ? tts.voice.name : '', voiceCount: (tts.voices || []).length,
                 rate: CFG.rate, pitch: CFG.pitch, lang: CFG.lang,
-                gate: gate.on, bargeIn: CFG.bargeIn, lastError: tts.lastError
+                gate: gate.on, bargeIn: CFG.bargeIn, lastError: tts.lastError,
+                ambient: ambientOn(), ambientVolume: S ? S.volume() : 0
             };
         }
     };
@@ -706,6 +784,6 @@
         '；' + (tts.enabled ? '开' : '关') + '）｜' +
         (tts.supported ? ('当前音色：' + (tts.voice ? tts.voice.name : '（音色列表还没就绪）'))
             : '这台浏览器不支持语音合成') +
-        '；单击右下角喇叭开 / 关，长按或右键选音色。');
+        '；右下角那颗喇叭按钮已合并「环境音 + 语音播报」：单击 = 全部开 / 关，长按或右键 = 声音 / 语音面板。');
 })();
 

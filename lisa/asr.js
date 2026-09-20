@@ -9,10 +9,13 @@
    · 展示：
        右下角（声音按钮正上方）麦克风按钮：静听=麦克风图标，说话=跳动声波，出错=红圈
        屏幕底部居中：实时字幕条（已定稿 = 白色，草稿 = 灰色 + 光标闪烁）
-   · 引擎（CFG.engine，默认 'vosk'）：
-       'vosk'      = 模型跑在本机 WASM 里（./vosk/vosk.js + ./vosk/model.tar.gz）
+   · 引擎（CFG.engine，默认 'auto'）：
+       'auto'      = 自动挑：Safari / iOS → **苹果原生听写**（webkitSpeechRecognition，
+                     就是 Siri 那套；Safari 17 / iOS 17 起还能要求「只在设备上识别」，
+                     音频不出本机、断网可用）；其它浏览器 → 本机离线 Vosk 模型
+       'vosk'      = 模型跑在本机 WASM 里（./vosk/vosk.js + ./vosk/model.vosk）
                      **断网可用**、音频不出本机，中文小模型约 40MB，流式出字
-       'webspeech' = 浏览器自带识别（Chrome→Google、Edge→微软），必须联网，Firefox 不支持
+       'webspeech' = 浏览器自带识别（Chrome→Google、Edge→微软、Safari→Apple），必须联网，Firefox 不支持
    · 浏览器要求：
        页面必须在 https 或 http://localhost 下打开，否则浏览器直接拒绝麦克风
        （手机用 http://192.168.x.x:8000 访问就属于这种情况，页面会给出排查提示）
@@ -23,9 +26,17 @@
 
     /* ------------------------------------------------------------------ 可调参数 */
     var CFG = {
-        /* ---- 引擎选择：默认 Vosk 本地离线模型，断网也能识别 ---- */
-        engine: 'vosk',         /* 'vosk'      = 模型跑在本机 WASM 里（要 ./vosk/ 目录，完全离线）
-                                   'webspeech' = 浏览器自带识别（Chrome→Google / Edge→微软，要联网） */
+        /* ---- 引擎选择 ----
+           'auto'（默认）= 自动挑：
+               · Safari（桌面 / iOS，含 iPadOS，内核是 WebKit）→ 苹果原生听写
+                 （webkitSpeechRecognition，就是 Siri 用的那套：中文通常比 WASM 小模型准、
+                   iOS 17 / Safari 17 起还能要求「只在设备上识别」，音频不出本机、断网可用）
+               · 其它浏览器 → 本机离线 Vosk 模型（断网可用、音频完全不出本机）
+           'vosk'      = 强制本机 WASM 离线模型（要 ./vosk/ 目录）
+           'webspeech' = 强制浏览器自带识别（Chrome→Google / Edge→微软 / Safari→Apple，需联网） */
+        engine: 'auto',
+        appleOnDevice: true,    /* Safari 专用：尽量走苹果「在设备上」识别（requiresOnDeviceRecognition）——
+                                   音频不出本机、也不需要网络；系统没装 / 没开中文听写时会自动退回在线识别 */
         voskScript: './vosk/vosk.js',       /* vosk-browser 单文件构建，WASM + Worker 已内联，无需其它文件 */
         voskModel: './vosk/model.vosk',     /* 中文小模型（约 43MB，就是官方 tar.gz，只是改了扩展名 ——
                                                叫 .tar.gz 会被 IDM 之类的下载管理器拦截，导致浏览器拿到空文件） */
@@ -80,8 +91,21 @@
 
     /* ------------------------------------------------------------------ 状态 */
     var Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
-    var wsSupported = !!Rec;              /* 浏览器自带 Web Speech API 是否可用（Firefox 没有） */
-    var engineKind = (CFG.engine === 'vosk') ? 'vosk' : 'webspeech';
+    var wsSupported = !!Rec;              /* 浏览器自带 Web Speech API 是否可用（Firefox 没有；Safari 是 webkit 前缀） */
+
+    /* 是不是 Safari（含 iOS / iPadOS 上的所有浏览器：它们内核都是 WebKit，所以也走苹果识别）。
+       Chrome / Edge / Opera 的 UA 里也带 "Safari"，所以要先排除它们 */
+    function detectSafari() {
+        var ua = navigator.userAgent || '';
+        if (/CriOS|FxiOS|EdgiOS|OPiOS|Chrome|Chromium|CriOS|Android|Edg|OPR|SamsungBrowser/i.test(ua)) return false;
+        return /Safari/i.test(ua) && /AppleWebKit/i.test(ua);
+    }
+    var isSafari = detectSafari();
+
+    /* 引擎解析：'auto' 时 Safari 走苹果原生听写，其它走本机离线 Vosk；
+       拿不到苹果识别（老 iOS / 旧 Safari）时就自动退回 Vosk */
+    var autoEngine = (isSafari && wsSupported) ? 'webspeech' : 'vosk';
+    var engineKind = (CFG.engine === 'vosk' || CFG.engine === 'webspeech') ? CFG.engine : autoEngine;
 
     var mic = { ctx: null, stream: null, src: null, analyser: null, timeBuf: null, byteBuf: null, freqBuf: null, sink: null };
     var vad = {
@@ -96,7 +120,8 @@
     var asr = {
         rec: null, running: false, starting: false, wantRun: false,
         finalText: '', draft: '', committed: false,
-        netFails: 0, hardFail: false
+        netFails: 0, hardFail: false,
+        onDevice: false       /* Safari：这个识别器是不是「只在本机识别」的（失败会自动退回在线一次） */
     };
     var voice = {
         armed: false,        /* 用户是否已经点过 [CLICK] TO START */
@@ -549,12 +574,27 @@
         } catch (e) { }
     }
 
+    /* 苹果原生听写（Safari / iOS）的额外设置：
+       · requiresOnDeviceRecognition（Safari 17 / iOS 17+）= 只在本机识别：离线可用、音频不出设备
+       · Safari 不支持 continuous：它说完一句就会 end，靠 onend 里的重启接着听（VAD 断句照旧）
+       · Safari 的 interimResults 支持有限：拿不到草稿也不影响定稿，底部的字照样会出来 */
+    function appleTune(r) {
+        if (!isSafari || !r) return;
+        try {
+            if (CFG.appleOnDevice && ('requiresOnDeviceRecognition' in r)) {
+                r.requiresOnDeviceRecognition = true;
+                asr.onDevice = true;
+            }
+        } catch (e) { }
+    }
+
     function buildRecognizer() {
         var r = new Rec();
         r.lang = CFG.lang;
         r.continuous = true;
         r.interimResults = true;      /* 关键：打开它才有“边说边出字”的草稿 */
         r.maxAlternatives = 1;
+        appleTune(r);
 
         r.onstart = function () {
             asr.starting = false;
@@ -584,14 +624,38 @@
 
         r.onerror = function (e) {
             var code = (e && e.error) || '';
+
+            /* 苹果「只在本机识别」要求系统里有对应语言的听写包；没有就自动退回在线识别再试一次 */
+            if (asr.onDevice && (code === 'language-not-supported' || code === 'service-not-allowed')) {
+                asr.onDevice = false;
+                asr.rec = null;                                  /* 丢掉这个识别器，下次按「在线」重建 */
+                console.warn('[voice] 苹果本机听写不可用（' + code + '），改为在线识别重试一次');
+                return;
+            }
             if (code === 'no-speech' || code === 'aborted') return;    /* 静音 / 主动 stop，正常现象 */
+            if (code === 'language-not-supported') {
+                asr.hardFail = true;
+                asr.wantRun = false;
+                fail('系统里没有中文听写',
+                    '苹果识别用的是<b>系统听写语言包</b>：<br>' +
+                    '· iOS / iPadOS：设置 → 通用 → 键盘 → 听写 → 语言里加「中文（普通话）」<br>' +
+                    '· macOS：系统设置 → 键盘 → 听写 → 语言里加中文<br>' +
+                    '加完刷新页面；想绕过它就把 asr.js 顶部 CFG.engine 改成 <code>vosk</code>（本机离线模型）。');
+                return;
+            }
             if (code === 'not-allowed' || code === 'service-not-allowed') {
                 asr.hardFail = true;
                 asr.wantRun = false;
                 fail('浏览器不让用语音识别', code === 'not-allowed'
                     ? ('识别服务被拒绝：一般是麦克风权限被拒，或页面不在 https / localhost 下。' +
                         (secureOk() ? '' : '<br>' + insecureHint()))
-                    : '识别服务被拒绝（service-not-allowed）：换个浏览器，或用 https / localhost 打开。');
+                    : (isSafari
+                        ? ('Safari 要把系统听写打开才能用苹果识别：<br>' +
+                            '· iOS / iPadOS：设置 → 通用 → 键盘 → <b>启用听写</b>（并确保已下载中文）<br>' +
+                            '· macOS：系统设置 → 键盘 → 听写；以及「Siri 与听写」里允许听写<br>' +
+                            '· 页面必须在 https 或 http://localhost 下，并允许麦克风' +
+                            '<br>不想依赖系统听写，就把 CFG.engine 改成 <code>vosk</code>（本机离线模型）。')
+                        : '识别服务被拒绝（service-not-allowed）：换个浏览器，或用 https / localhost 打开。'));
                 return;
             }
             if (code === 'network') {
@@ -958,8 +1022,9 @@
         window.removeEventListener('pointerdown', onFirstGesture, true);
         window.removeEventListener('keydown', onFirstGesture, true);
         voice.armed = true;
-        /* 稍等一下再开麦，别和入场的闪屏动画抢资源 */
-        window.setTimeout(function () { if (!voice.userOff) enable(); }, 400);
+        /* 稍等一下再开麦，别和入场的闪屏动画抢资源；Safari / iOS 对“用户手势”很敏感，
+           识别要尽快在手势之后启动，所以那边不延时 */
+        window.setTimeout(function () { if (!voice.userOff) enable(); }, isSafari ? 0 : 400);
     }
 
     /* 用捕获阶段监听，保证比 app.js 里那个 “[CLICK] TO START” 的监听先拿到这次手势 */
@@ -1032,6 +1097,7 @@
             return {
                 armed: voice.armed, on: voice.on, hidden: voice.hidden,
                 engine: engineKind, voskReady: !!vosk.model,
+                safari: isSafari, onDevice: !!asr.onDevice,
                 speaking: !!vad.speaking, hold: gate.hold,
                 recognizing: engineKind === 'vosk' ? !!vosk.rec : asr.running,
                 levelDb: Math.round(vad.level), noiseDb: Math.round(vad.noise),
@@ -1045,7 +1111,12 @@
     voice.hidden = !!document.hidden;
     setState('off');
     console.log('[voice] VAD + ASR 已就绪（引擎: ' + engineKind +
-        (engineKind === 'vosk' ? '（本机离线模型，断网可用）' : (wsSupported ? '，本浏览器支持 Web Speech API' : '，但本浏览器没有 Web Speech API')) +
+        (engineKind === 'vosk'
+            ? '（本机离线模型，断网可用）'
+            : (isSafari
+                ? ('（Safari / iOS：苹果原生听写' + (CFG.appleOnDevice ? '，优先只在本机识别' : '') + '）')
+                : (wsSupported ? '（浏览器自带识别，需联网）' : '（本浏览器没有 Web Speech API）'))) +
+        '｜CFG.engine = ' + CFG.engine +
         '）；点页面任意处（[CLICK] TO START）之后会自动开始监听。');
 })();
 

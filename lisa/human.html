@@ -32,10 +32,19 @@
           （人设 + 世界书 + 对话历史一份 JSON）；文件也可以直接拖到页面上导入。
           这三样全部缓存在 localStorage（键 lisa-memory-v1），刷新不丢、不上传任何地方。
        10) 语音播报（TTS，实现见 tts.js）：把 Lisa 的回复（对白层里的蓝字）念出来 ——
-           默认用浏览器内置的 SpeechSynthesis（中文音色，本机合成、断网可用、不新增任何文件）；
-           右下角喇叭按钮：单击开 / 关，长按或右键打开音色面板（音色 / 语速 / 音调 / 试听）。
+           默认用浏览器内置的 SpeechSynthesis（中文音色，本机合成、断网可用、不新增任何文件）。
+           右下角那颗喇叭按钮**合并**了原来的「环境音开关」与「语音播报开关」：
+           单击 = 声音总开关（环境音 + 播报一起开 / 关），长按（约 0.6s）或右键 = 声音 / 语音面板
+           （环境音开关与音量、音色、语速、音调、试听）。环境音本体仍是本文件里的 lisaSound。
            关键：播报期间会调用 asr.js 的静默闸门（window.lisaVoice.hold），麦克风里收进来的
            多半是她自己的声音 —— 那就不提交、不显示、也不触发她回话，免得她跟自己聊起来。
+       11) 离线缓存（cache.js + sw.js）：**下载一次就永远留在本机**。
+           Service Worker 把页面、脚本、3D 资源、离线语音模型、大模型权重全部收进
+           浏览器 Cache Storage（大文件缓存优先、代码先用缓存再后台更新），cache.js 另外
+           申请持久化存储（防止浏览器清缓存）并一次性把全部资源预下载下来（底部有进度条）。
+           记忆面板里多了「预下载全部 / 清空缓存」两个按钮与缓存状态。
+           注意：缓存按「协议 + 主机 + 端口」隔离 —— 固定用一个地址（推荐
+           http://127.0.0.1:8000/human.html）就不会重复下载；换地址会重新下一遍，cache.js 会提醒。
 
   · 必须通过本地 HTTP 服务访问（例如 `python -m http.server 8000` 或 `npx serve`）。
     直接双击以 file:// 打开时，浏览器会因 CORS 拦截 .glb / .mp4 / .mp3 / .exr 的加载。
@@ -388,28 +397,32 @@
         }
 
         /* ==================================================================
-           语音播报（TTS）：右下角喇叭按钮（在麦克风按钮上面一格）+ 音色面板
-           逻辑全在 tts.js 里；面板复用上面 .c-lisa_memory 那套深色样式
+           声音 / 语音（TTS）：右下角那颗喇叭按钮 **合并** 了原来的
+           「环境音开关」与「语音播报开关」——单击总开关，长按 / 右键开面板
+           按钮本身的样式是 #lisa-sound 上的内联样式（沿用原站那套：黑圆 + 白图标）
+           面板复用上面 .c-lisa_memory 那套深色样式，逻辑在 tts.js + human.html 里的 lisaSound
            ================================================================== */
-        #lisa-tts {
-            bottom: 138px
-        }
 
-        #lisa-tts svg {
+        #lisa-sound svg {
             fill: #fff;
-            width: 24px;
-            height: 24px;
+            width: 26px;
+            height: 26px;
             display: block
         }
 
-        /* 关掉播报时只留喇叭本体，声波藏起来（按钮还会吃 .c-lisa_voice.is-off 的半透明） */
-        #lisa-tts.is-off .c-lisa_tts-wave {
+        /* 全部静音时：只留喇叭本体（声波藏起来）+ 一圈白边，和老版本观感一致 */
+        #lisa-sound.is-off .c-lisa_tts-wave {
             display: none
         }
 
-        /* 音色面板：和记忆面板同一个位置（同一时间只开一个），里面的原生控件要单独配颜色 */
+        /* 正在念（TTS 播报中）：脉冲光圈，一眼看出她在说话 */
+        #lisa-sound.is-speak {
+            animation: c-lisa_voice-pulse 1.15s ease-out infinite
+        }
+
+        /* 声音 / 语音面板：和记忆面板同一个位置（同一时间只开一个），里面的原生控件要单独配颜色 */
         #lisa-tts-panel {
-            bottom: 260px
+            bottom: 200px
         }
 
         .c-lisa_tts-select {
@@ -496,9 +509,8 @@
         /* ==================================================================
            记忆 / 人设 / 世界书面板（memory.js 驱动）—— 风格跟右下角那几个按钮一致
            ================================================================== */
-        /* 语音播报按钮占了原来的这一格（138px），记忆按钮往上让一格 */
         #lisa-memory-btn {
-            bottom: 198px
+            bottom: 138px
         }
 
         #lisa-memory-btn svg {
@@ -510,7 +522,7 @@
         .c-lisa_memory {
             position: fixed;
             right: 18px;
-            bottom: 260px;
+            bottom: 200px;
             z-index: 2147483645;
             width: 370px;
             max-width: calc(100vw - 36px);
@@ -649,26 +661,17 @@
                  模型为同目录下的 lisa.glb，环境贴图为 envmap.exr，屏幕视频为 running_code.mp4 -->
             <div class="c-lisa_visualizer" data-module-lisa-visualizer></div>
 
-            <!-- 声音开关：点它切换 ambient.mp3 的播放 / 停止（图标默认就有，脚本只负责切换）
+            <!-- 声音按钮（**合并**了「环境音」与「语音播报」两个开关）：
+                 单击 = 开 / 关所有声音（环境音 ambient.mp3 + Lisa 的语音播报一起切）
+                 长按（约 0.6s）或右键 = 打开「声音 / 语音」面板（环境音开关与音量、音色、语速、音调、试听）
+                 图标由 tts.js 渲染：声波那两段带 .c-lisa_tts-wave，静音时藏起来、只留喇叭本体
                  注意：图标用 style="fill:#fff" 内联写死，main.css 里 svg{fill:...} 之类的规则覆盖不了它 -->
-            <button type="button" id="lisa-sound" aria-label="Sound" title="Play"
+            <button type="button" id="lisa-sound" aria-label="声音" title="声音：开"
                 style="position:fixed;right:18px;bottom:18px;z-index:2147483647;width:48px;height:48px;padding:0;border:0;border-radius:50%;background:#000;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:box-shadow .2s ease">
                 <svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">
                     <path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z" />
-                    <path d="M14.4 8.4a4.8 4.8 0 0 1 0 7.2l1.5 1.5a6.9 6.9 0 0 0 0-10.2z" />
-                    <path d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z" />
-                </svg>
-            </button>
-
-            <!-- 语音播报（TTS，tts.js）：把 Lisa 的回复念出来 ——
-                 单击 = 开 / 关播报；长按（约 0.6s）或右键 = 音色面板（音色 / 语速 / 音调 / 试听）。
-                 默认用浏览器内置合成（离线、零依赖）；关掉时声波藏起、只留喇叭本体 -->
-            <button type="button" id="lisa-tts" class="c-lisa_voice" aria-label="语音播报已开启"
-                title="语音播报：开（单击关闭 / 长按选音色）">
-                <svg viewBox="0 0 24 24" aria-hidden="true" style="fill:#fff">
-                    <path d="M4 9.4h3.2L11.7 6v12L7.2 14.6H4z" />
-                    <path class="c-lisa_tts-wave" d="M14.3 8.9a4.3 4.3 0 0 1 0 6.2l1.4 1.4a6.3 6.3 0 0 0 0-9z" />
-                    <path class="c-lisa_tts-wave" d="M17.3 5.9a8.7 8.7 0 0 1 0 12.2l1.4 1.4a10.6 10.6 0 0 0 0-15z" />
+                    <path class="c-lisa_tts-wave" d="M14.4 8.4a4.8 4.8 0 0 1 0 7.2l1.5 1.5a6.9 6.9 0 0 0 0-10.2z" />
+                    <path class="c-lisa_tts-wave" d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z" />
                 </svg>
             </button>
 
@@ -736,6 +739,20 @@
                     <span class="c-lisa_memory-file" id="lisa-history-info">历史 0 条</span>
                 </div>
                 <label class="c-lisa_memory-check"><input type="checkbox" id="lisa-autoanswer" checked> 听到一整句就自动回话</label>
+                <!-- 离线缓存（cache.js + sw.js）：模型 / 离线语音 / 页面资源下载一次就留在本机，
+                     第二次打开不再下载；缓存按「地址 + 端口」隔离，换地址等于重下一遍 -->
+                <div class="c-lisa_memory-row">
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-offline-precache">预下载全部</button>
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-offline-clear">清空缓存</button>
+                    <span class="c-lisa_memory-file" id="lisa-offline-info">离线缓存：正在检查…</span>
+                </div>
+                <div class="c-lisa_memory-hint" style="border-top:0;padding-top:0">
+                    离线缓存（<code>sw.js</code> + <code>cache.js</code>）：模型权重 276MB、离线语音 49MB
+                    与页面资源下载一次就存在本机，<b>第二次打开是 0 下载</b>（断网也能开）。
+                    缓存按「地址 + 端口」隔离 —— 固定用
+                    <code>http://127.0.0.1:8000/human.html</code> 最省事（换成局域网 IP 或别的端口
+                    就是另一套缓存，会重新下一次）。
+                </div>
                 <div class="c-lisa_memory-hint" id="lisa-memory-hint">
                     内置人设 + 世界书：<b>Lisa —— 这片宇宙的管理员</b>，以人类能理解的形象出现；
                     点「恢复内置」可随时还原。<br>
@@ -750,10 +767,18 @@
                  音色 / 语速 / 音调 / 试听；设置存在 localStorage['lisa-tts-v1']，刷新不丢 -->
             <div class="c-lisa_memory" id="lisa-tts-panel" role="dialog" aria-label="语音播报设置">
                 <div class="c-lisa_memory-head">
-                    <b>语音播报（TTS）</b>
+                    <b>声音 / 语音</b>
                     <span class="c-lisa_memory-close" id="lisa-tts-close" title="关闭">✕</span>
                 </div>
+                <!-- 环境音（ambient.mp3）：原来在右下角单独有一颗按钮，现在并进这颗喇叭的总开关里 -->
                 <div class="c-lisa_memory-row">
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-sound-toggle">环境音：开</button>
+                    <span class="c-lisa_memory-file" style="margin:0 8px 0 0">音量</span>
+                    <input type="range" id="lisa-sound-volume" min="0" max="1" step="0.05" value="0.5">
+                    <span class="c-lisa_memory-file" id="lisa-sound-volume-val" style="margin-left:8px">50%</span>
+                </div>
+                <div class="c-lisa_memory-row">
+                    <button type="button" class="c-lisa_memory-btn" id="lisa-tts-toggle">语音播报：开</button>
                     <button type="button" class="c-lisa_memory-btn" id="lisa-tts-test">试听</button>
                     <button type="button" class="c-lisa_memory-btn" id="lisa-tts-stop">停止</button>
                     <button type="button" class="c-lisa_memory-btn" id="lisa-tts-refresh">重找音色</button>
@@ -774,7 +799,9 @@
                     <span class="c-lisa_memory-file" id="lisa-tts-pitch-val" style="margin-left:8px">1.06</span>
                 </label>
                 <div class="c-lisa_memory-hint">
-                    单击右下角喇叭 = 开 / 关播报，长按（或右键）= 打开这块面板。<br>
+                    右下角那颗喇叭按钮已经把「环境音」和「语音播报」并成一颗：<b>单击 = 全部开 / 关</b>，
+                    <b>长按（或右键）= 打开这块面板</b>（上面两行分别是环境音与播报的开关、音量 / 音色）。
+                    页面里第一次点击也会自动开环境音（浏览器拦截自动播放时的老办法）。<br>
                     默认用<b>浏览器内置合成</b>：音色来自系统，<b>本机合成、断网可用</b>。列表里没有中文音色时，
                     去系统「时间和语言 → 语音」装一个中文语音包（Windows），回来点「重找音色」即可。<br>
                     播报期间她会用 asr.js 的静默闸门按住识别结果：麦克风收到的大多是扬声器里她自己的声音，
@@ -801,53 +828,107 @@
         });
     </script>
 
-    <!-- 声音：直接播放同目录的 ambient.mp3 -->
+    <!-- 环境音（ambient.mp3）：这里只管音频本身，并对外暴露 window.lisaSound
+         右下角那颗喇叭按钮由 tts.js 统一管（单击 = 声音总开关：环境音 + 语音播报一起切；
+         长按 / 右键 = 面板：环境音开关与音量、音色、语速、音调、试听） -->
     <script>
         (function () {
             var audio = document.getElementById('lisa-ambient');
+            if (!audio) return;
             var button = document.getElementById('lisa-sound');
 
-            var ICON_ON = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">' +
-                '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
-                '<path d="M14.4 8.4a4.8 4.8 0 0 1 0 7.2l1.5 1.5a6.9 6.9 0 0 0 0-10.2z"/>' +
-                '<path d="M17.9 4.9a10 10 0 0 1 0 14.2l1.5 1.5a12.1 12.1 0 0 0 0-17.2z"/></svg>';
-            var ICON_OFF = '<svg viewBox="0 0 24 24" width="26" height="26" aria-hidden="true" style="fill:#fff">' +
-                '<path d="M3.5 9h3.4l4.6-3.8v13.6L6.9 15H3.5z"/>' +
-                '<g transform="rotate(45 19.4 12)"><rect x="18.45" y="7.4" width="1.9" height="9.2" rx=".95"/>' +
-                '<rect x="14.8" y="11.05" width="9.2" height="1.9" rx=".95"/></g></svg>';
+            var CFG = {
+                volumeKey: 'lisa-ambient-volume',   /* 环境音音量 0~1 */
+                muteKey: 'lisa-muted'               /* 静音记忆（沿用原站键名） */
+            };
 
-            function render() {
-                var on = !audio.paused;
-                button.innerHTML = on ? ICON_ON : ICON_OFF;
-                button.style.boxShadow = on ? 'none' : 'inset 0 0 0 3px #fff';
-                button.title = on ? 'Mute' : 'Play';
+            function fire(type, detail) {
+                detail = detail || {};
+                detail.type = type;
+                try {
+                    var ev;
+                    if (window.CustomEvent) ev = new CustomEvent('lisa-sound', { detail: detail });
+                    else {
+                        ev = document.createEvent('CustomEvent');
+                        ev.initCustomEvent('lisa-sound', false, false, detail);
+                    }
+                    window.dispatchEvent(ev);
+                } catch (e) { }
             }
+
+            function recall(key, dflt) {
+                try { var v = window.localStorage.getItem(key); return v === null ? dflt : v; } catch (e) { return dflt; }
+            }
+            function remember(key, v) { try { window.localStorage.setItem(key, String(v)); } catch (e) { } }
+
+            var vol = parseFloat(recall(CFG.volumeKey, '0.5'));      /* 默认 0.5，和原站一致 */
+            if (!(vol >= 0 && vol <= 1)) vol = 0.5;
+            audio.volume = vol;
+
+            var mutedByUser = recall(CFG.muteKey, 'false') === 'true';   /* 上次是不是被按钮关掉过 */
+            audio.muted = false;
+
+            function isOn() { return !audio.paused && !audio.muted; }
 
             function play() {
                 audio.muted = false;
                 var p = audio.play();
-                if (p && p.catch) p.catch(function (e) {
-                    console.warn('[sound] play 失败：', e && e.name, audio.currentSrc || audio.src);
-                });
+                if (p && p.catch) {
+                    p.catch(function (e) {
+                        console.warn('[sound] play 失败：', e && e.name, audio.currentSrc || audio.src);
+                    });
+                }
+                return p;
             }
 
-            /* 点按钮：正在响 → 停；没声音 → 播 */
-            button.addEventListener('click', function () {
-                if (audio.paused) play(); else audio.pause();
-            });
+            window.lisaSound = {
+                el: audio,
+                isOn: isOn,
+                volume: function (v) {
+                    if (v === undefined) return audio.volume;
+                    vol = Math.min(1, Math.max(0, Number(v) || 0));
+                    audio.volume = vol;
+                    remember(CFG.volumeKey, vol);
+                    if (vol > 0) { mutedByUser = false; remember(CFG.muteKey, 'false'); }
+                    fire('volume', { volume: vol, on: isOn() });
+                    return vol;
+                },
+                on: function () {
+                    mutedByUser = false;
+                    remember(CFG.muteKey, 'false');
+                    play();
+                    return true;
+                },
+                off: function () {
+                    mutedByUser = true;
+                    remember(CFG.muteKey, 'true');
+                    audio.pause();
+                    return false;
+                },
+                toggle: function () {
+                    if (isOn()) { this.off(); return false; }
+                    this.on();
+                    return true;
+                },
+                state: function () {
+                    return {
+                        on: isOn(), volume: audio.volume, paused: audio.paused, muted: audio.muted,
+                        src: audio.currentSrc || audio.src
+                    };
+                }
+            };
 
-            audio.addEventListener('play', render);
-            audio.addEventListener('pause', render);
+            audio.addEventListener('play', function () { fire('state', { on: true }); });
+            audio.addEventListener('pause', function () { fire('state', { on: false }); });
+            audio.addEventListener('volumechange', function () { fire('volume', { volume: audio.volume, on: isOn() }); });
 
-            /* 浏览器默认拦截自动播放：先试一次，被拦就在第一次点击页面（按钮除外）时再放 */
-            play();
+            /* 浏览器默认拦截自动播放：先试一次；被拦了就在第一次点击页面（按钮本身除外）时再放 */
+            if (!mutedByUser) play();
             document.addEventListener('pointerdown', function first(event) {
-                if (button.contains(event.target)) return;
+                if (button && button.contains(event.target)) return;   /* 点按钮交给 tts.js */
                 document.removeEventListener('pointerdown', first, true);
-                if (audio.paused) play();
+                if (!mutedByUser && audio.paused) play();
             }, true);
-
-            render();
         })();
     </script>
 
@@ -1014,6 +1095,12 @@
     <script src="./tts.js?v=1" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.tts='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.tts='fail'"></script>
+
+    <!-- 离线缓存（下载一次 → 永久本机）：注册 Service Worker + 申请持久化存储 + 一次性预下载
+         之后第二次打开不再从网络取任何东西（模型权重 276MB、离线语音 49MB、页面资源） -->
+    <script src="./cache.js?v=1" defer
+        onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.cache='ok'"
+        onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.cache='fail'"></script>
 
     <script>
         /* 用 file:// 打开时浏览器会拦截本地音频/模型（控制台只有 NotSupportedError 和 403，看着像“按钮坏了”）。

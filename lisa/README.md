@@ -17,12 +17,14 @@
 | `app.js` | 主程序（three.js r165 + GSAP + hls.js 打包体） | 打了表情控制器补丁 |
 | `main.css` | 站点样式（含 CSS 变量、`.c-lisa*` 全部样式、字体） | 原样未改 |
 | `vendors.js` | 兼容性垫片（focus-visible、clipboard 等） | 原样 |
-| `asr.js` | **语音输入（VAD + ASR）**：麦克风音量检测 + 语音识别（默认本机离线 Vosk） | 本次新增，纯前端零依赖，见第 3.4 节 |
+| `asr.js` | **语音输入（VAD + ASR）**：麦克风音量检测 + 语音识别（`engine:'auto'`：Safari/iOS 走**苹果原生听写**，其它走本机离线 Vosk） | 本次新增，纯前端零依赖，见第 3.4 节 |
 | `vosk/vosk.js` | **离线识别引擎**（vosk-browser 单文件构建，WASM + Worker 已内联） | 5.8 MB，本地文件 |
 | `vosk/model.vosk` | **中文语音模型**（= 官方 `vosk-model-small-cn-0.22.tar.gz`，只改了扩展名） | 43.9 MB，本地文件；叫 `.tar.gz` 会被 IDM 拦截，故改名 |
 | `llm.js` | **端侧 GPU 小模型**（WebGPU / WebLLM）：听到你说完一整句就用显卡生成回复 | 本次新增，见第 3.5 节 |
 | `memory.js` | **记忆 / 人设 / 世界书**：导入角色卡（PNG/JSON）与世界书、对话记忆本地缓存与导出导入 | 本次新增，见第 3.6 节 |
 | `tts.js` | **语音播报（TTS）**：把 Lisa 的回复念出来（默认浏览器内置合成，离线、零依赖；也可换成自己起的本地 TTS 服务） | 本次新增，见第 3.7 节 |
+| `sw.js` | **离线缓存 Service Worker**：页面 / 脚本 / 3D 资源 / 离线语音 / 模型权重下载一次就永久留在本机 | 本次新增，见第 3.8 节 |
+| `cache.js` | **离线缓存（页面侧）**：申请持久化存储 + 一次性预下载全部资源 + 换地址提醒 | 本次新增，见第 3.8 节 |
 | `llm/web-llm.js` | WebLLM 引擎（MLC 的浏览器端推理库，ESM） | 6.6 MB，本地文件 |
 | `llm/Qwen2-0.5B-…-webgpu.wasm` | 该模型对应的 WebGPU 计算库 | 4.6 MB，本地文件 |
 | `llm/models/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/v2/` | 模型权重（q4f16 量化，14 个分片） | 276 MB，本地文件；**`resolve/<段>` 这层是 WebLLM 的规则，别删** |
@@ -62,15 +64,15 @@ npx serve -l 8000
         ├─ <div class="c-lisa_main" id="lisa-say">                        ← 对白层（弹幕）：复用原站 .c-lisa_main 样式
         ├─ <div class="c-lisa_visualizer" data-module-lisa-visualizer>   ← 3D 画布挂载点
         ├─ <button class="c-lisa_sound" id="lisa-sound">                  ← 声音开关
-        ├─ <button class="c-lisa_voice" id="lisa-tts">                    ← 语音播报（TTS）开关：单击开/关，长按或右键选音色
+        ├─ <button class="c-lisa_sound" id="lisa-sound">                  ← **合并后的声音按钮**（环境音 + 语音播报，单击总开关，长按/右键开面板）
         ├─ <button class="c-lisa_voice" id="lisa-voice">                  ← 语音输入开关（说话时图标变声波）
         ├─ <button class="c-lisa_voice" id="lisa-memory-btn">             ← 记忆 / 人设 / 世界书面板开关
         ├─ <div class="c-lisa_voice-bar" id="lisa-voice-bar">             ← 底部实时字幕（上一句 / 定稿 / 草稿 + 光标）
         ├─ <div class="c-lisa_voice-tip" id="lisa-voice-tip">             ← 只在语音出错时出现的提示条
-        ├─ <div class="c-lisa_memory" id="lisa-memory">                   ← 记忆 / 人设 / 世界书面板
-        └─ <div class="c-lisa_memory" id="lisa-tts-panel">                ← 语音播报设置面板（音色 / 语速 / 音调 / 试听）
+        ├─ <div class="c-lisa_memory" id="lisa-memory">                   ← 记忆 / 人设 / 世界书 + 离线缓存面板
+        └─ <div class="c-lisa_memory" id="lisa-tts-panel">                ← 声音 / 语音面板（环境音开关与音量、音色、语速、音调、试听）
     window.preloaderEnterPromise / window.preloaderPromise                ← app.js 启动必需
-    ./vendors.js、./app.js、./asr.js、./memory.js、./llm.js、./tts.js
+    ./vendors.js、./app.js、./asr.js、./memory.js、./llm.js、./tts.js、./cache.js（+ Sw 里的 ./sw.js）
 ```
 
 ### 2.2 app.js 的启动链路（为什么要保留那几个元素）
@@ -92,7 +94,8 @@ npx serve -l 8000
 | **鼠标向左移动** | 切换屏幕 **左半边** 为下一个表情视频 |
 | 鼠标静止 7~16 秒 | 65% 概率自动换一个表情（整屏）；35% 概率走原版 `We.setIdle()`（`sre` 随机内容 + 故障参数回落） |
 | 点击模型画面 | 人物做一次「后仰」动作（原站 `We.click()` → `moveBack()`） |
-| 右下角声音按钮 | 当前没声音 → 点它开始播放；正在响 → 点它静音（状态记忆在 `localStorage['lisa-muted']`） |
+| 右下角声音按钮（**合并后**） | 单击 = **声音总开关**：环境音 `ambient.mp3` 与 Lisa 的语音播报一起开 / 关；长按 ≈0.6s 或**右键** = 打开「声音 / 语音」面板（环境音开关与音量、音色、语速、音调、试听）。状态记忆在 `localStorage`：`lisa-muted`（静音）、`lisa-ambient-volume`（环境音音量）、`lisa-tts-v1`（播报设置） |
+| **离线缓存（一次下载→永久本机）** | `sw.js` + `cache.js`：页面、脚本、3D 资源、离线语音模型、大模型权重下载一次就进浏览器 Cache Storage，**第二次打开是 0 下载**（断网也能开）；记忆面板里有「预下载全部 / 清空缓存」与缓存用量。⚠️ 缓存按「地址 + 端口」隔离，换地址会重下一遍（详见第 3.8 节） |
 | **语音输入（VAD + ASR）** | 点过 `[CLICK] TO START` 之后**自动开麦常听**：一说话就自动识别、边说边出字，停顿 ≈0.8s 自动收句；右下角麦克风按钮可随时开 / 关（详见第 3.4 节） |
 | **语音结果展示（对白层 / 弹幕）** | 一开口：底部白色面板升起并实时显示草稿；说完一句：用「乱码落定」定格 + 闪烁光标，停留 ≈7s 后收起；最多保留 3 行，新的一句把旧的往上顶（详见第 3.4 节） |
 | **语音播报（TTS）** | Lisa 的回复（对白层里的那行蓝字）会**念出来**：右下角喇叭按钮单击开 / 关，长按或右键打开音色面板（音色 / 语速 / 音调 / 试听）；播报期间用 `asr.js` 的静默闸门按住识别结果，免得她听见自己（详见第 3.7 节） |
@@ -167,33 +170,58 @@ var LISA_GLITCH_OFF = { screenGlitchFrequency: .05, screenGlitchIntensity: 0, di
 
 切表情时旧视频的 `play()` 会被新 `src` 打断，浏览器抛 `AbortError`（原站也有，只是没人管）。补丁里给 `HTMLMediaElement.prototype.play` 加了一层包装，把这次预期内的失败 catch 掉，避免满屏红色报错（不影响任何真实失败的处理，调用方自己挂的 catch 仍然生效）。
 
-### 3.3 声音开关按钮（完全自带实现）
+### 3.3 声音按钮（**已合并**：环境音 + 语音播报同一颗）
 
-- **语义**：当前没声音（自动播放被拦 / 已静音）→ 点它 **开始播放**；正在响 → 点它 **静音**。
-- **记忆**：`localStorage['lisa-muted']`（沿用原站键名），刷新后保持；静音后「点击页面自动播放」那条逻辑不会再抢着开声音。
-- **外观**：44×44 黑圆 + 白色图标，右下角 `var(--grid-margin)`，`z-index: 9999`；
-  - 播放中：「喇叭 + 声波」
-  - 静音中：「喇叭 + 叉」**并且多一圈白环**（`box-shadow: inset 0 0 0 2px`），状态一眼可辨
-  - 每次切换会弹一下（`-pop` 关键帧动画），明确反馈"点到了"
-  - `main.css` 里那套「两个图标上下叠 + 白圆滑动反色」的机制已用 `.c-lisa_sound:before { display:none !important }` 停用（它依赖白圆位移来反色，本页用不到，之前正是它导致静音时黑图标叠黑底看不见）
-- **点击可靠性**（都踩过坑，逐条修过）：
-  - 同时监听 `pointerup` 与 `click`：按下时指针略动会导致浏览器不派发 `click`，靠 `pointerup` 兜底；
-  - 去重用**手势标记**（`pointerdown` 重置）而不是时间窗口 —— 按时间窗口会把"快速连点第二下"吃掉；
-  - 键盘 `Enter` / `空格` 显式处理（并同样走去重）；
-  - 图标状态以"音频是否真的在响"为准，另有 500ms 定时器兜底自愈，不会出现图标与声音不同步；
-  - `start()` 里先把 `audio.muted = false` 强制解开（防止元素级静音卡死）；
-  - 一旦 `play()` 被浏览器拦下，会打印 `[sound] play() 被浏览器拦截：NotAllowedError`，并在**下一次点击/按键**自动重试（点在按钮上的手势会跳过，避免与按钮自身切换抢跑）。
+右下角原来有两颗「喇叭」：一颗管 `ambient.mp3` 环境音（原站那颗黑圆），一颗是后加的语音播报开关。
+现在**合并成同一颗** `#lisa-sound`：
 
-### 3.4 `asr.js` + `vosk/`（本次新增）：语音输入 = VAD + ASR，**默认本机离线**、零依赖
+| 操作 | 行为 |
+|---|---|
+| **单击** | **声音总开关**：还有声音在响（环境音或播报任一个开着）→ 全部关掉；两个都关着 → 全部打开 |
+| **长按 ≈0.6s** / **右键** | 打开「声音 / 语音」面板（`#lisa-tts-panel`）：环境音开关 + 音量、语音播报开关、音色、语速、音调、试听、停止 |
+| 图标 | 有声：喇叭 + 声波；全部静音：喇叭 + 叉**并且多一圈白环**（`box-shadow: inset 0 0 0 3px #fff`）；正在念：脉冲光圈（`.is-speak`） |
+| 状态记忆 | `lisa-muted`（静音，沿用原站键名）、`lisa-ambient-volume`（环境音音量 0~1，默认 0.5）、`lisa-tts-v1`（播报开关 / 音色 / 语速 / 音调） |
+
+**代码分工**（两半各管一摊，互不干扰）：
+
+- **环境音那一半**在 `human.html` 的内联脚本里：负责 `<audio id="lisa-ambient">` 的播放 / 暂停、音量、
+  静音记忆、以及「浏览器拦截自动播放 → 下一次点击页面时重试」的老逻辑；对外只暴露
+  `window.lisaSound`（`isOn() / on() / off() / toggle() / volume(v) / state()`）并发 `lisa-sound` 事件。
+- **按钮与播报那一半**在 `tts.js` 里：渲染图标、单击总开关、长按/右键开面板、面板里所有控件，
+  以及 TTS 的播报与打断逻辑。它通过 `window.lisaSound` 驱动环境音，并监听 `lisa-sound` 事件刷新按钮状态。
+- 两者都不存在时各自降级（`tts.js` 找不到 `#lisa-sound` 会退回独立按钮 `#lisa-tts`；环境音脚本找不到
+  `window.lisaSound` 时面板里那两行控件就只是不生效）。
+
+> 想单独控制其中一个：点开面板（长按 / 右键）里有两行 —— 「环境音：开 / 关 + 音量」「语音播报：开 / 关」，
+> 也可以直接在控制台 `lisaSound.toggle()` / `lisaTTS.toggle()`。
+
+### 3.4 `asr.js` + `vosk/`（本次新增）：语音输入 = VAD + ASR，**引擎自动挑**（Safari → 苹果原生听写 / 其它 → 本机离线 Vosk）
 
 本页没有后端、也没有构建工具，全部用浏览器能力 + 本地 WASM 实现，**一行都没改 `app.js`**：
 
 | 环节 | 用什么 | 说明 |
 |---|---|---|
 | **VAD** | `getUserMedia` + `AudioContext` + `AnalyserNode` | 每帧取时域数据算 RMS → dB，用「自适应噪声底 + SNR 阈值 + 悬挂时间」判断人声区间（自己写的，不引第三方库）；按钮上那 4 根声波柱就是它的输出 |
-| **ASR（默认）** | `vosk/vosk.js` + `vosk/model.vosk` | **中文小模型跑在本机 WASM 里**（5.8MB 引擎 + 43.9MB 模型，都是本地文件）：断网可用、音频不出本机，**流式出字** |
-| **ASR（可选）** | `SpeechRecognition` / `webkitSpeechRecognition` | 浏览器自带识别（Chrome→Google、Edge→微软）要联网；`continuous = true` + `interimResults = true` |
+| **ASR（Safari / iOS，默认）** | `webkitSpeechRecognition`（**苹果原生听写**，就是 Siri 那套） | `CFG.engine = 'auto'` 时 Safari 自动走这条：中文通常比 WASM 小模型准；Safari 17 / iOS 17 起还能要求 **只在本机识别**（`requiresOnDeviceRecognition`，音频不出设备、断网可用） |
+| **ASR（其它浏览器，默认）** | `vosk/vosk.js` + `vosk/model.vosk` | **中文小模型跑在本机 WASM 里**（5.8MB 引擎 + 43.9MB 模型，都是本地文件）：断网可用、音频不出本机，**流式出字** |
+| **ASR（手动固定）** | `CFG.engine = 'webspeech'` / `'vosk'` | 想强制用浏览器自带识别（Chrome→Google、Edge→微软）或强制用 Vosk，直接改这一项 |
 | **展示** | `human.html` 里新增的 DOM | 右下角麦克风按钮（说话时图标换成 4 根跳动声波 + 脉冲光圈）+ 底部居中字幕（上一句浅色、定稿白色、草稿灰色 + 闪烁光标）+ 只在出错时出现的顶部提示条 |
+
+#### Safari / iOS：苹果原生 ASR 的注意事项（`CFG.engine = 'auto'` 时默认走这条）
+
+Safari（含 iOS / iPadOS 上的**所有**浏览器，它们的 WebKit 内核决定了也只能用苹果识别）支持
+`webkitSpeechRecognition`，也就是系统「听写 / Siri」那套识别引擎 —— 好消息是**中文通常比本地小模型准**，
+而且新系统上可以完全在设备上跑。踩过的坑与处理：
+
+| 事项 | 说明 / 代码里的处理 |
+|---|---|
+| **`continuous` 不支持** | Safari 说完一句就 `end`。靠 `onend` 里的**自动重启**接着听（`CFG.restartDelayMs`），再配 VAD 断句，体验接近连续识别 |
+| **`interimResults` 支持有限** | 拿不到实时草稿也不影响使用：定稿文字照样出（`partial` 只是"边说边出字"的草稿） |
+| **系统听写要打开** | 识别失败会报 `service-not-allowed`：页面会给出中文指引（iOS：设置 → 通用 → 键盘 → **启用听写**；macOS：系统设置 → 键盘 → 听写 / Siri 与听写） |
+| **中文语言包** | 报 `language-not-supported` 说明系统里没装中文听写：页面提示去加「中文（普通话）」；不想折腾就把 `CFG.engine` 改成 `'vosk'` |
+| **只在本机识别** | `CFG.appleOnDevice = true`（默认）会给识别器设 `requiresOnDeviceRecognition = true`；如果系统没准备好（报 `language-not-supported` / `service-not-allowed`），代码会**自动退回在线识别重试一次**，不会一直卡住 |
+| **必须 https / localhost** | 和其它浏览器一样（Safari 对麦克风、识别都要求安全上下文） |
+| **手势时机** | Safari / iOS 对"用户手势"很敏感：点过 `[CLICK] TO START` 之后**立即**开麦（其它浏览器仍延时 400ms，避开开场动画） |
 
 **触发链路**：`[CLICK] TO START`（首次 `pointerdown` / `keydown`，用捕获阶段抢在 `app.js` 之前）→ 400ms 后自动 `getUserMedia` 开麦 → 进入 VAD 常听：
 
@@ -365,20 +393,22 @@ say-partial 之后同一段反复推来（每次都带全量文本）      -> �
 **被打断（barge-in）**：`CFG.bargeIn = false`（默认）时她会把话说完 —— 你这时候说话**不会被识别**（等她说完再听你）。
 戴耳机想随时插话就把 `bargeIn` 改成 `true`：你一出字（`partial`）就停下播报，并把闸门放开，你的话立刻被正常识别。
 
-**界面**（`human.html` 里新增的 DOM + CSS）：
+**界面**（和 `#lisa-sound` **合并**成同一颗按钮，详见第 3.3 节）：
 
 | 元素 | 行为 |
 |---|---|
-| 右下角喇叭按钮 `#lisa-tts`（`bottom: 138px`，正好在麦克风按钮上面一格） | 单击 = 开 / 关播报；**长按 ≈0.6s 或右键 = 音色面板**；关掉时声波藏起来（`#lisa-tts.is-off .c-lisa_tts-wave`），正在念时吃 `.c-lisa_voice.is-speak` 的脉冲光圈 |
-| 音色面板 `#lisa-tts-panel` | 复用 `.c-lisa_memory` 那套深色样式（`bottom: 260px`）：音色下拉 / 语速 / 音调 / 试听 / 停止 / 重找音色 |
-| 记忆按钮与面板 | 各往上让了一格（`bottom: 198px` / `bottom: 260px`），两块面板同一个位置，打开一个会自动收起另一个 |
+| 右下角喇叭按钮 `#lisa-sound`（黑圆那颗，`bottom: 18px`） | 单击 = **声音总开关**（环境音 + 播报一起）；**长按 ≈0.6s 或右键 = 声音 / 语音面板**；全部静音时声波藏起来（`#lisa-sound.is-off .c-lisa_tts-wave`）+ 一圈白环，正在念时吃 `.is-speak` 的脉冲光圈 |
+| 声音 / 语音面板 `#lisa-tts-panel` | 复用 `.c-lisa_memory` 那套深色样式：① 环境音开关 + 音量滑杆；② 语音播报开关；③ 音色下拉 / 语速 / 音调；④ 试听 / 停止 / 重找音色 |
+| 记忆按钮与面板 | 记忆面板与声音面板同一个位置（`bottom: 200px`），打开一个会自动收起另一个 |
 
 **对外接口**：
 
 ```js
 window.lisaTTS.speak('你好呀');            // 手动念一段（不受开关限制）
 window.lisaTTS.test();                    // 试听（面板上「试听」按钮调的就是它）
-window.lisaTTS.on() / .off() / .toggle()  // 开关（会写进 localStorage）
+window.lisaTTS.on() / .off() / .toggle()  // 只切「语音播报」这一半
+window.lisaTTS.master();                  // 等价于点右下角那颗按钮：环境音 + 播报一起开 / 关
+window.lisaTTS.sound();                   // 环境音那一侧的对象（window.lisaSound）
 window.lisaTTS.stop();                    // 立刻停下（同时放开 asr.js 的静默闸门）
 window.lisaTTS.voices();                  // 当前浏览器的音色列表
 window.lisaTTS.setVoice('Microsoft Xiaoxiao Online …');
@@ -394,6 +424,52 @@ window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  /
 2. **切到后台自动停**：`visibilitychange` 到 hidden 时会 `stop()`（asr.js 那边也停了识别，继续念没意义）；切回来不会自动续念。
 3. **和右下角那个圆形「声音」按钮无关**：那个管的是 `ambient.mp3` 环境音；播报音量是 `CFG.volume`。
 4. **长句不会被截断**：每句一个 utterance，另有按字数估算时长的看门狗（Chrome 偶尔不触发 `onend`）。
+
+### 3.8 `sw.js` + `cache.js`（本次新增）：**下载一次就永久留在本机**
+
+针对「每次打开网页都在重新下载」这个问题，做了三层保障：
+
+| 层次 | 做什么 | 为什么需要 |
+|---|---|---|
+| **持久化存储** | `cache.js` 启动时调 `navigator.storage.persist()` | 浏览器在磁盘紧张时会自动清理「尽力而为」型的存储（Cache Storage / IndexedDB 一起清），一清就得重下；拿到持久化授权后就不会被清 |
+| **Service Worker** | `sw.js` 拦下**同源 GET**：大文件缓存优先、代码「先用缓存 + 后台更新」、页面导航网络优先 + 离线兜底 | 页面、脚本、`lisa.glb`、`vosk/`、`llm/`（含 276MB 权重）统统进 Cache Storage；第二次打开**一个字节都不再从网络取**，断网也能开 |
+| **一次性预下载** | `cache.js` 把清单里的文件逐个拉进缓存（已经有的直接跳过），进度条显示「已缓存 xx / yy MB」 | 不用等"用到才下"：第一次打开就把约 345MB 全存好，之后是 0 下载 |
+
+**清单是自动生成的**（不用手维护）：脚本 / 样式直接从 DOM 里读（`?v=` 是多少就缓存多少）；
+大模型这一侧从 `llm.js` 的 `CFG` 拿到模型目录，再读模型自带的 `mlc-chat-config.json`
+（`tokenizer_files`）和 `tensor-cache.json`（`dataPath` + `nbytes`）把分词器与所有权重分片枚举出来；
+离线语音从 `asr.js` 的 `CFG` 拿 `vosk.js` + `model.vosk`。**以后换模型不用改 cache.js**。
+
+**界面**：记忆面板里多了一行 —— 「预下载全部」「清空缓存」+ 缓存状态（文件数 / 体积 / 是否已持久化）；
+预下载期间屏幕下方有一条进度条（`#lisa-offline-bar`，完成 5 秒后自动消失）。
+
+**⚠️ 换地址 = 换缓存**（"每次打开都重新下载"最常见的原因）：
+浏览器缓存按「协议 + 主机 + 端口」隔离，`http://127.0.0.1:8000` 与 `http://192.168.x.x:8000`
+是**两套完全独立的缓存**。`cache.js` 会记住上次用的地址，换了就弹提示。固定用一个地址最省事，
+推荐 `http://127.0.0.1:8000/human.html`（`启动本地服务.bat` 现在默认打开的就是它）。
+
+**其它要点**：
+
+1. **只在安全上下文可用**（https / `http://localhost` / `http://127.0.0.1`）。手机用局域网 IP 打开时
+   Service Worker 注册不了 —— 页面会提示；那种情况下模型只能靠浏览器自身的 HTTP / IndexedDB 缓存。
+2. **不重复占盘（可选）**：权重既在 WebLLM 的 IndexedDB 里，也在 SW 缓存里（各一份，约 276MB×2）。
+   想省磁盘就把 `cache.js` 里的 `CFG.cacheWeights` 改成 `false`（权重的持久化交给 WebLLM 的 IndexedDB）；
+   `CFG.cacheVosk = false` 同理跳过那 49MB。
+3. **跨域与 Range 请求不碰**：表情视频（`stream.mux.com`）等跨域请求、带 `Range` 的音视频拖动请求
+   原样放行，不受影响。
+4. **更新代码怎么办**：脚本 / 样式走「先用缓存 + 后台更新」，所以改了文件**把 `?v=` 加一**（本项目一直在用）
+   就立刻生效；想彻底重建缓存，把 `sw.js` 顶部的 `VERSION` 加一（`lisa-v1` → `lisa-v2`）。
+
+**对外接口**：
+
+```js
+window.lisaOffline.state();      // { supported, secure, entries, cachedBytes, persistent, quota, usage, origin, … }
+window.lisaOffline.assets();     // 看清单：现在会缓存哪些文件
+window.lisaOffline.precache();   // 手动再跑一次预下载（已经有的会跳过）
+window.lisaOffline.clear();      // 清空离线缓存（下次打开会重下）
+window.lisaOffline.estimate();   // 本机存储用量 / 配额
+window.addEventListener('lisa-offline', function (e) { console.log(e.detail); });  // progress / done / state
+```
 
 ---
 
@@ -437,7 +513,8 @@ window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  /
 
 | 变量 | 默认 | 说明 |
 |---|---|---|
-| `engine` | `'vosk'` | `'vosk'` = 本机离线模型（默认，断网可用）；`'webspeech'` = 浏览器自带识别（要联网） |
+| `engine` | `'auto'` | `'auto'` = 自动挑：**Safari / iOS → 苹果原生听写**（`webkitSpeechRecognition`），其它浏览器 → 本机离线 Vosk；也可强制 `'vosk'`（本机离线，断网可用）或 `'webspeech'`（浏览器自带识别，要联网） |
+| `appleOnDevice` | `true` | Safari 专用：给识别器加 `requiresOnDeviceRecognition`（**只在本机识别**，音频不出设备、断网可用）；系统没装中文听写包时自动退回在线识别一次 |
 | `voskScript` | `'./vosk/vosk.js'` | 离线引擎文件（单文件构建，WASM + Worker 都在里面） |
 | `voskModel` | `'./vosk/model.vosk'` | 离线模型文件；**扩展名别改回 `.tar.gz`**，否则会被 IDM 之类下载管理器拦截 |
 | `voskSampleRate` | `16000` | Vosk 模型原生采样率，不要改（采集端会按它开 AudioContext） |
@@ -508,9 +585,23 @@ window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  /
 | `selfListen` | `true` | `true` = 播报期间按住 `asr.js` 的静默闸门（防自己跟自己聊） |
 | `holdReleaseMs` | `350` | 播完之后多久恢复「接收你说的语音」 |
 | `maxQueue` | `6` | 待念的句子最多堆几条（超了丢最早的） |
-| `longPressMs` | `600` | 长按喇叭按钮多久算「长按」（开音色面板；右键同效） |
+| `longPressMs` | `600` | 长按喇叭按钮多久算「长按」（打开声音 / 语音面板；右键同效） |
 | `storageKey` | `'lisa-tts-v1'` | 开关 / 音色 / 语速 / 音调的 localStorage 键 |
 | `server.url` / `.voice` / `.format` / `.timeoutMs` | `''` / `''` / `'wav'` / `15000` | 引擎二：本地 TTS 服务的地址 / 音色 id / 音频格式 / 超时 |
+
+### 4.8 离线缓存参数（`cache.js` 顶部的 `CFG`；`sw.js` 顶部只有 `VERSION`）
+
+| 变量 | 默认 | 说明 |
+|---|---|---|
+| `swUrl` | `'./sw.js'` | Service Worker 文件位置 |
+| `enabled` | `true` | `false` = 不注册 SW（退回浏览器自身的 HTTP / IndexedDB 缓存） |
+| `autoPrecache` | `true` | 打开页面后自动把全部资源预下载到本机 |
+| `autoPrecacheDelayMs` | `4000` | 预下载的启动延迟（别和开场动画、模型预热抢带宽） |
+| `cacheWeights` | `true` | 是否把大模型权重（约 276MB）收进离线缓存；`false` = 只靠 WebLLM 的 IndexedDB（省一份磁盘） |
+| `cacheVosk` | `true` | 是否把离线语音（约 49MB）收进离线缓存 |
+| `always` | 3D / 声音 / 图标 / 字体清单 | 一定会缓存的本地文件（脚本与样式自动从 DOM 读，不在这里列） |
+| `extra` | `[]` | 想额外缓存的相对路径 |
+| `sw.js` 里的 `VERSION` | `'lisa-v1'` | **改缓存策略 / 清单后 +1**，浏览器会自动丢掉旧缓存重建 |
 
 ---
 
@@ -533,6 +624,9 @@ window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  /
 | 端侧 GPU 小模型（`llm.js`） | `node --check` 通过；`llm/web-llm.js` 确认是 ESM 且导出 `CreateMLCEngine`；**无头 Chrome 实测**：`llm.js` 加载成功、`window.lisaLLM` 挂载、`navigator.gpu` 存在但无适配器时走到中文降级提示（`progress 正在检查 GPU…` → `error 这台设备的浏览器没有可用的 WebGPU…`），语音识别不受影响 |
 | 端侧小模型（真机生成） | ⚠️ 需要你在**有显卡的 Chrome / Edge** 里确认（无头环境没有 WebGPU 适配器，SwiftShader 也跑不动 276MB 模型）：点 `[CLICK] TO START` 后控制台应出现 `[llm] 端侧模型已就绪：Qwen2.5-0.5B-Instruct-q4f16_1-MLC（跑在 GPU 上）`，然后说一句话，弹幕里应出现**蓝色**的回复 |
 | 记忆 / 人设 / 世界书（`memory.js`） | `node --check` 通过；**逻辑单测 47 项全过**（node + 假 DOM）：v2 / v1 / **PNG** 角色卡解析、卡内嵌世界书、世界书三种写法、关键词命中与不命中、`constant` 永远注入、`secondary_keys` 二级命中才注入、`enabled:false` 不注入、prompt 组装（system 在最前、历史进 prompt）、导出/导入往返、清空、非法输入拒绝、localStorage 写入结构。**无头 Chrome 实测 15 项**：面板点开/关闭、导入后人设/世界书/历史文案实时更新、`buildMessages` 含人设与世界书条目、`localStorage` 921 字节结构正确、导出结构正确。过程中修掉四个真 bug：数组自带 `.entries/.keys` 方法导致数组式世界书解析失败；v1 角色卡识别条件不足；内置人设用了 camelCase 字段名导致开场白丢失；`constant` 常驻条目会被 `maxWorldHits` 名额挤掉（已改为常驻不占名额） |
+| Safari 苹果原生 ASR（`asr.js`） | `node --check` 通过；`CFG.engine='auto'` 的判定逻辑（Safari/WebKit → `webspeech` 苹果听写，其它 → Vosk；拿不到 `webkitSpeechRecognition` 时自动退回 Vosk）；`requiresOnDeviceRecognition` 只在 Safari 且系统支持时设置，失败（`language-not-supported` / `service-not-allowed`）自动退回在线识别一次；Safari 的 `onend`（不支持 `continuous`）由已有重启逻辑接住。⚠️ **Safari 端还需你在真机（macOS Safari / iPhone）上确认**：无需代理、中文识别质量、系统听写开关提示是否正常 |
+| 声音按钮合并（`human.html` + `tts.js`） | 静态检查通过：`#lisa-tts` 已移除，按钮统一为 `#lisa-sound`；`window.lisaSound`（环境音）与 `tts.js`（按钮 + 播报）分工明确，两边各自能降级；`lisa-muted` / `lisa-ambient-volume` / `lisa-tts-v1` 三个键各管一段状态。⚠️ 交互效果请你在真机点一下确认（单击总开关 / 长按与右键开面板） |
+| 离线缓存（`sw.js` + `cache.js`） | `node --check` 通过；**实测过一次完整预下载**（无头 Chrome，全新 profile + 127.0.0.1）：`CacheStorage` 落盘 **36 个文件 / 339MB**，与清单预估的 345.8MB 一致（含 8 个权重分片 + `vosk/model.vosk` + `web-llm.js` + `.wasm` + 分词器 + 页面资源）；`navigator.storage.estimate()` 报同量级占用；跨域请求与 HEAD 探测都不进缓存 |
 | 语音播报（`tts.js`） | `node --check` 通过；**逻辑自测 44 项全过**（node + 假 DOM + 假 `speechSynthesis`）：流式分句（半句先不念 / 句末才念 / 只念新长出来的那段）、逐句排队与句间停顿、`lisaVoice.hold` 起播按上、播完放开、`guardMs` 内不打断、`bargeIn` 打开后一开口就停、开关与手动 `speak()`、音色优选（同语言 + `voiceHints`）、下拉只列同语言音色、设置写进 localStorage、空文本不炸。**无头 Chrome 真实环境 19 项全过**（真 DOM / 真事件 / 真 `getVoices()`，`speak()` 包一层以便断言）：22 个音色里自动挑中「Google 普通话（中国大陆）」、按钮 class 在开 / 关之间切换、面板试听与点叉关闭、清洗 `**你好**（笑）[emoji] 看看 https://… 还有 [官网](…)` → `你好 emoji 看看 还有 官网。` |
 | 语音播报（真人听感） | ⚠️ 需要你自己听一下：点 `[CLICK] TO START` → 说一句话 → 蓝字出现后应当**同时听到**她的声音；长按喇叭打开面板可换音色 / 调语速。若只出字没声音，先看面板里「音色」是不是空的（系统没装中文语音包） |
 
@@ -576,6 +670,11 @@ window.addEventListener('lisa-tts', function (e) { console.log(e.detail); });  /
 | 播报：她开始自问自答 | 静默闸门没起作用：确认 `asr.js` 是最新版（`window.lisaVoice.hold` 存在）、`CFG.selfListen` 为 `true`；应急可关掉 `CFG.bargeIn` 并把 `guardMs` 调大（如 `1500`） |
 | 播报：说话时「你说的」不被识别 | 这是**故意**的：播报期间 `asr.js` 的静默闸门会按住提交（防自激）。想边说边插话：戴耳机 + `CFG.bargeIn = true` |
 | 播报：想更自然的声音 | 浏览器内置合成是「能用、离线、零依赖」的水平；要更像人就把 `CFG.engine` 改成 `'server'` 并填 `CFG.server.url`，接自己起的本地 TTS（GPT-SoVITS / edge-tts / ChatTTS / CosyVoice 都行，只要 POST JSON 回来音频） |
+| **Safari / iPhone：识别不了、或提示要让打开听写** | Safari 用的是**苹果原生听写**（不是 Google / 微软那套）：① iOS：设置 → 通用 → 键盘 → **启用听写**，并把「中文（普通话）」加进听写语言；② macOS：系统设置 → 键盘 → 听写、以及「Siri 与听写」里允许听写；③ 页面必须在 https 或 `http://localhost` 下并允许麦克风。做不到这些就把 `asr.js` 的 `CFG.engine` 改成 `'vosk'`（本机离线小模型，不依赖系统） |
+| Safari：想确认音频到底有没有出本机 | `lisaVoice.state()` 里的 `safari: true, onDevice: true` 表示**只在本机识别**（`requiresOnDeviceRecognition` 生效）；如果控制台出现「苹果本机听写不可用（…），改为在线识别重试一次」，说明系统缺中文听写包，这次退回了 Apple 的在线识别 |
+| **右下角那颗喇叭为什么管两件事** | 2026-09 起把原来两颗按钮（环境音 / 语音播报）合并成一颗：单击 = 全部开 / 关，**长按或右键** = 面板里分别控制「环境音（开关 + 音量）」与「语音播报（开关 + 音色 / 语速 / 音调）」 |
+| **每次打开都还在重新下载模型** | ① 先看**访问地址是不是变了**：`127.0.0.1:8000` 与 `192.168.x.x:8000`、`localhost:8000` 是**三套不同的缓存**，换来换去等于每次重下（`cache.js` 会弹提示）；② 看是不是**非安全上下文**（局域网 IP）：那种情况下 Service Worker 注册不了，缓存只剩浏览器自身的 HTTP / IndexedDB；③ 打开记忆面板看「离线缓存」那行：正常应显示「已缓存 30+ 个文件 / 300+ MB · 已持久化」，是 0 就点「预下载全部」；④ 浏览器清理数据 / 隐私模式下每次都会重下 |
+| 改了文件但页面还是旧的 | 脚本 / 样式走「先用缓存 + 后台更新」：**把 `?v=` 加一**（如 `llm.js?v=7` → `v=8`）或把 `sw.js` 的 `VERSION` 加一，刷新即可；也可以 `lisaOffline.clear()` 清空缓存后再刷新 |
 
 ---
 
@@ -621,6 +720,6 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 
 ## 9. 附
 
-- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层 + 记忆面板 + 播报按钮与音色面板）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：离线 Vosk / 云端 Web Speech，另带给播报用的静默闸门 `lisaVoice.hold`）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）、**新增 `memory.js`**（记忆 / 人设 / 世界书，纯 localStorage 缓存）、**新增 `tts.js`**（语音播报：浏览器内置合成，离线零依赖；可选接本地 TTS 服务）。
+- 目录里 **`main.css`、`vendors.js`、`lisa.glb`、`envmap.exr`、`running_code.mp4`、`ambient.mp3`、字体、`表情.txt` 均未改动**；本次改动清单：`human.html`（重写 + 语音 UI + 对白层 + 记忆面板 + **环境音/播报合并成一颗声音按钮** + 离线缓存那行）、`app.js`（三类补丁）、**新增 `asr.js`**（VAD + 双引擎 ASR：`engine:'auto'` → Safari 走**苹果原生听写**、其它走离线 Vosk，另带给播报用的静默闸门 `lisaVoice.hold`）、**新增 `vosk/`**（`vosk.js` 5.8MB + 中文模型 `model.vosk` 43.9MB）、**新增 `llm.js` + `llm/`**（端侧 GPU 小模型：WebLLM 引擎 6.6MB + WebGPU 计算库 4.6MB + Qwen2.5-0.5B 权重 276MB）、**新增 `memory.js`**（记忆 / 人设 / 世界书，纯 localStorage 缓存）、**新增 `tts.js`**（语音播报：浏览器内置合成，离线零依赖；可选接本地 TTS 服务）、**新增 `sw.js` + `cache.js`**（离线缓存：下载一次 → 永久本机，第二次打开 0 下载）、`启动本地服务.bat`（默认改成打开 `127.0.0.1`，避免和局域网 IP 用成两套缓存）。
 - 桌面上另有 `bendibanb\`（原始快照，未改动）与 `bendibanb.zip`，需要对照或回退时可用。
 - `app.js` 是压缩打包体，补丁以**独立段落注入**（只替换了 3 处字符串 + 在 `oP` 类后插入一段自包含代码），格式化/压缩工具不要再压缩这段，否则注释与可读结构会丢。
