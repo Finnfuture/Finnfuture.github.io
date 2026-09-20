@@ -890,18 +890,18 @@
 
     <!-- 语音输入（VAD + ASR，纯前端）：挂在 app.js 之后，只操作自己的 DOM，不影响 3D 的启动流程
          ?v= 这个小版本号是用来破浏览器"启发式缓存"的：脚本一改就把它加一，普通刷新也能拿到新版 -->
-    <script src="./asr.js?v=6" defer
+    <script src="./asr.js?v=7" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.asr='fail'"></script>
 
     <!-- 记忆 / 人设 / 世界书：导入角色卡（PNG / JSON）与世界书，对话记忆存浏览器、可导出导入 -->
-    <script src="./memory.js?v=6" defer
+    <script src="./memory.js?v=7" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.memory='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.memory='fail'"></script>
 
     <!-- 端侧 GPU 小模型（WebGPU / WebLLM，Qwen2.5-0.5B-Instruct q4f16）：
          引擎、WebGPU 计算库、模型权重全在 ./llm/ 里，断网可用；听到你说完一整句就用显卡生成回复 -->
-    <script src="./llm.js?v=6" defer
+    <script src="./llm.js?v=7" defer
         onload="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='ok'"
         onerror="window.__lisaRes=(window.__lisaRes||{});window.__lisaRes.llm='fail'"></script>
 

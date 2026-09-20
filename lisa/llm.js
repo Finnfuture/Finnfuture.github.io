@@ -42,6 +42,7 @@
         autoAnswer: true,        /* true = 每听到一整句就自动回话（关掉就只用 lisaLLM.ask() 手动调用） */
         preload: 'idle',         /* 'idle' = 点过 [CLICK] TO START 后开始预热；'manual' = 用到才加载 */
         preloadDelayMs: 2500,    /* 预热延迟，避开开场动画 */
+        preloadVoiceWaitMs: 30000,  /* 最多等离线语音模型（Vosk 43MB）这么久，再开始拉大模型 */
         cooldownMs: 1200         /* 两次回话的最小间隔，防止连环触发 */
     };
 
@@ -86,7 +87,31 @@
         }
     }
 
-    /* ------------------------------------------------------------------ WebGPU + 引擎加载 */
+    /* ------------------------------------------------------------------ 加载进度提示
+       首次要下/解包几百 MB，给个看得见的进度条，别让人以为卡死了 */
+    var elProg = null;
+
+    function progressBar() {
+        if (elProg) return elProg;
+        elProg = document.createElement('div');
+        elProg.id = 'lisa-llm-progress';
+        elProg.style.cssText = 'position:fixed;left:50%;bottom:152px;transform:translateX(-50%);' +
+            'z-index:2147483644;padding:8px 14px;border-radius:999px;background:rgba(0,0,0,.82);' +
+            'color:#fff;font:12px/1.6 system-ui,-apple-system,"Microsoft YaHei",sans-serif;' +
+            'box-shadow:0 8px 24px rgba(0,0,0,.3);display:none;max-width:82vw;text-align:center';
+        document.body.appendChild(elProg);
+        return elProg;
+    }
+
+    function showProgress(text) {
+        var el = progressBar();
+        el.textContent = text;
+        el.style.display = 'block';
+    }
+
+    function hideProgress() {
+        if (elProg) elProg.style.display = 'none';
+    }
     /* 统一转绝对 URL：WebLLM 内部会自己拼/校验 URL，相对路径在某些版本上会拼错 */
     function abs(u) {
         try { return new URL(u, location.href).href; } catch (e) { return u; }
@@ -135,6 +160,7 @@
         if (llm.dead) {
             return Promise.reject(new Error('上次加载失败，已停止自动重试；修好后在控制台执行 lisaLLM.load(true) 即可重试'));
         }
+        showProgress('端侧模型：正在检查 GPU…');
         emit('progress', { text: '正在检查 GPU…' });
         llm.loading = gpuCheck().then(function (adapter) {
             if (!adapter) {
@@ -169,6 +195,7 @@
                     var text = (r && r.text) || '';
                     llm.progress = (typeof p === 'number' && text.indexOf('%') < 0)
                         ? Math.round(p * 100) + '%' : text;
+                    showProgress('端侧模型加载中 ' + llm.progress + '　（首次约 276MB，之后走浏览器缓存）');
                     emit('progress', { text: llm.progress, raw: r });
                 }
             });
@@ -176,12 +203,14 @@
             llm.engine = engine;
             llm.ready = true;
             llm.loading = null;
+            hideProgress();
             emit('ready', { vramRequiredMB: CFG.vramMB });
             console.log('[llm] 端侧模型已就绪：' + CFG.modelId + '（跑在 GPU 上）');
             return engine;
         }).catch(function (err) {
             llm.loading = null;
             llm.dead = true;         /* 失败后不再自动重试（避免控制台刷屏）；修好后 lisaLLM.load(true) 可重试 */
+            hideProgress();
             warn(((err && err.message) || String(err)) +
                 '<br>端侧小模型用不了也没关系，语音识别仍然照常工作。');
             emit('error', { error: (err && err.message) || String(err) });
@@ -290,11 +319,32 @@
         function go() {
             window.removeEventListener('pointerdown', go, true);
             window.removeEventListener('keydown', go, true);
-            window.setTimeout(function () { loadEngine().catch(function () { }); }, CFG.preloadDelayMs);
+            window.setTimeout(function () {
+                /* 先等离线语音模型（Vosk，43MB）就绪，再拉这个 276MB 的大模型：
+                   两个大文件同时下载会互相抢带宽，串行反而更快、进度也更清楚 */
+                waitVoiceThenLoad(Date.now() + CFG.preloadVoiceWaitMs);
+            }, CFG.preloadDelayMs);
         }
         window.addEventListener('pointerdown', go, true);
         window.addEventListener('keydown', go, true);
     })();
+
+    function waitVoiceThenLoad(deadline) {
+        var ready = true;
+        try {
+            var v = window.lisaVoice;
+            if (v && v.state) {
+                var st = v.state();
+                ready = (st.engine === 'vosk') ? !!st.voskReady : true;
+            }
+        } catch (e) { }
+        if (ready || Date.now() > deadline) {
+            loadEngine().catch(function () { });
+            return;
+        }
+        showProgress('端侧模型：等离线语音模型就绪…');
+        window.setTimeout(function () { waitVoiceThenLoad(deadline); }, 700);
+    }
 
     /* ------------------------------------------------------------------ 对外接口
        lisaLLM.ask('你好')                    手动问一句（返回整段回复）

@@ -460,6 +460,8 @@ window.lisaMemory.openPanel(true)  // 打开面板
 | 不想让它一直听麦克风 | 点右下角麦克风按钮关闭（会释放麦克风轨道）；或把 `human.html` 里 `<script src="./asr.js" defer …>` 那行注释掉 |
 | **语音一直卡在"正在加载离线语音模型"、控制台报 `Folder '…' does not contain model files`** | 基本就是 **IDM / 迅雷之类下载管理器把模型请求截走了**：① 保持 `vosk/model.vosk` 这个扩展名（**别改回 `.tar.gz`**）；② 或在下载管理器里把 `127.0.0.1` 加进白名单。判断特征：解压在**几毫秒**内就"完成"、目录为空（本次踩坑记录） |
 | 语音报 `需要 https 或 localhost` | 手机用局域网 IP（`http://192.168.x.x:8000`）访问属不安全上下文：改回 `localhost` 或用 `chrome://flags/#unsafely-treat-insecure-origin-as-secure` 加白名单 |
+| **Vosk 报 `HTTP error! status: 404`，但直接访问模型 URL 明明 200**（尤其部署在 GitHub Pages 项目页 `/仓库名/` 下） | **已修**：Vosk 的 worker 是从 blob URL 创建出来的，它内部用 `new URL(相对路径, blob 去掉前缀后的地址)` 解析 —— 相对路径 `./vosk/model.vosk` 会被解析到**站点根目录**、把 `/仓库名/` 丢掉，于是 404。`asr.js` 现在给 `createModel()` 传**绝对 URL**。任何"页面不在站点根目录"的部署都会踩这个坑（本地测试时页面在根目录，所以一直没暴露） |
+| **首次打开很慢**（要下 Vosk 43MB + LLM 276MB） | 这是在下模型本体，不是卡死：① 屏幕上会有一条进度提示（"端侧模型加载中 xx%"）；② 现在两个模型**串行预热**（先等 Vosk 就绪再拉 LLM），不再互相抢带宽；③ **第二次打开走浏览器缓存**（Vosk → IndexedDB、LLM → IndexedDB），快很多；④ 服务器带宽差（如 GitHub Pages 在国内）可把 `vosk/`、`llm/` 换成对象存储/自建地址的绝对 URL |
 | 对白层（弹幕）样子不对 / 位置怪 | 它吃的是 `main.css` 里原站那套 `.c-lisa_main` 样式：① 确认 `<link id="main-css" href="./main.css">` 还在（app.js 也依赖它）；② 想挪位置、改配色，就改 `human.html` 里 `#lisa-say` 那几条覆盖规则；③ 不想用它就设 `CFG.sayLayer = false`（回到小的底部字幕条） |
 | 顶部提示「没有可用的 WebGPU」 | 端侧小模型要 Chrome / Edge 113+，且页面在 `https` / `http://localhost` 下；老版 Chrome 可在 `chrome://flags/#enable-unsafe-webgpu` 里开。**开不了也没关系，语音识别照常工作** |
 | 控制台报 `…/resolve/main/mlc-chat-config.json 404` 接着 `Failed to execute 'add' on 'Cache'` | 模型目录层级不对（**已修**）：WebLLM 会把模型 URL 当 HF 仓库地址、自动补 `/resolve/main/`，所以权重必须摆在 `llm/models/<模型名>/resolve/main/` 下。现在 `llm.js` 里的 `checkAssets()` 会先 HEAD 探测，报错时直接告诉你**是哪个 URL 404** |
@@ -504,6 +506,7 @@ GitHub Pages 是 **HTTP(S) 静态服务**，所以：
 | **CORS / MIME** | GitHub Pages 会给 `.mp3` 发 `audio/mpeg`、`.woff2` 发 `font/woff2`；`.glb` / `.exr` 一般是 `application/octet-stream`，three.js 用 arraybuffer 读取，不受影响 |
 | **字体** | `main.css` 里是 `/xxx.woff2` 这种根路径，仓库在子路径下会 404；本页已在 `human.html` 里用**相对路径 `@font-face` 覆盖**，所以子目录部署也正常 |
 | ⚠️ **大文件必须真的推上去** | `vosk/`（49MB）和 `llm/`（287MB）要跟页面一起提交推送。**Git LFS 不行**：GitHub Pages 不支持 LFS，页面拿到的是几百字节的指针文件，表现就是 `vosk/model.vosk` 404、Vosk 报 `HTTP error! status: 404`（`asr.js` / `llm.js` 现在会先 HEAD 探测并明确报出是哪个 URL）。检查方法：在仓库网页上点开这些文件，看大小是不是真实大小 |
+| ⚠️ **子目录部署要注意相对路径** | 页面不在站点根目录（GitHub Pages 项目页 `/仓库名/`）时，**从 blob worker 里发起的请求**会把相对路径解析到站点根目录。`asr.js` 已改成传绝对 URL；如果你以后自己改路径，记得也用绝对地址（代码里的 `abs()`） |
 | **字体的两个 404 可以无视** | `main.css` 里 `@font-face` 用的是根路径 `/PPLocomotiveNew-Light.woff2`，子目录部署时浏览器必然报两个 404；`human.html` 已经用相对路径的 `@font-face` 覆盖，字体显示正常 |
 | ⚠️ **签名视频会过期** | `表情.txt` 最后两条是带签名的临时地址（`expires=1790175600` ≈ **2026-09-23**），过期后会 403；长期用请只保留前 4 条公开地址 |
 | ⚠️ **访客网络要求** | 表情视频要能访问 mux CDN；若访客网络访问不了，模型和声音仍正常，只是屏幕上的表情视频不出来 |

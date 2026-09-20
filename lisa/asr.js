@@ -698,7 +698,10 @@
             .then(function (lib) {
                 vosk.lib = lib;
                 return checkVoskAssets().then(function () {
-                    return lib.createModel(CFG.voskModel);     /* 本地文件，首次解包几秒 */
+                    /* 必须给**绝对 URL**：worker 是从 blob URL 建出来的，它内部用
+                       `new URL(相对路径, blob 去掉前缀后的地址)` 解析 —— 在 GitHub Pages
+                       项目页（/仓库名/ 子目录）下会丢掉仓库名、跑到站点根目录去，直接 404 */
+                    return lib.createModel(abs(CFG.voskModel));
                 });
             })
             .then(function (model) {
